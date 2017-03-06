@@ -1,16 +1,14 @@
 #Android Binder通信
 ##Android进程间通信（IPC）机制Binder简要介绍和学习计划
 1. Binder具有粘结剂的意思，那么它把什么东西粘结在一起呢？在Android系统的Binder机制中，由一系统组件组成，分别是Client、Server、Service Manager和Binder驱动程序，其中Client、Server和Service Manager运行在用户空间，Binder驱动程序运行内核空间。Binder就是一种把这四个组件粘合在一起的粘结剂了，其中，核心组件便是Binder驱动程序了，Service Manager提供了辅助管理的功能，Client和Server正是在Binder驱动和Service Manager提供的基础设施上，进行Client-Server之间的通信。
-<<<<<<< HEAD
 ![20130614190840812.jpeg](/home/xb/Desktop/ScreenShots/20130614190840812.jpeg)
 　　　　　		　　　　　　　　　　　  图一
 ![20130627193512953.png](/home/xb/Desktop/ScreenShots/20130627193512953.png)
 　　　　　　　　　　　　　　　　　　　　　图二
 ![0_13110996490rZN.gif.png](/home/xb/Desktop/ScreenShots/0_13110996490rZN.gif.png)
 　　　　　　　　　　　　　　　　　　　　　图三
-=======
->>>>>>> c68aba224b6656df5bbdad7704707b0b4ff2b68a
-###Android Binder设计与实现 - 设计篇
+
+##Android Binder设计与实现 - 设计篇
 1. 要想实现Client-Server通信据必须实现以下两点：一是server必须有确定的访问接入点或者说地址来接受Client的请求，并且Client可以通过某种途径获知Server的地址；二是制定Command-Reply协议来传输数据。对Binder而言，Binder可以看成Server提供的实现某个特定服务的访问接入点， Client通过这个‘地址’向Server发送请求来使用该服务；对Client而言，Binder可以看成是通向Server的管道入口，要想和某个Server通信首先必须建立这个管道并获得管道入口。
 2. Binder使用了面向对象的思想来描述作为访问接入点的Binder及其在Client中的入口：Binder是一个实体位于Server中的对象，该对象提供了一套方法用以实现对服务的请求，就象类的成员函数。遍布于client中的入口可以看成指向这个binder对象的‘指针’，一旦获得了这个‘指针’就可以调用该对象的方法访问server。在Client看来，通过Binder‘指针’调用其提供的方法和通过指针调用其它任何本地对象的方法并无区别，尽管前者的实体位于远端Server中，而后者实体位于本地内存中。‘指针’是C++的术语，而更通常的说法是引用，即Client通过Binder的引用访问Server。
 3. 面向对象思想的引入将进程间通信转化为通过对某个Binder对象的引用调用该对象的方法，而其独特之处在于Binder对象是一个可以跨进程引用的对象，它的实体位于一个进程中，而它的引用却遍布于系统的各个进程之中。最诱人的是，这个引用和Java里引用一样既可以是强类型，也可以是弱类型，而且可以从一个进程传给其它进程，让大家都能访问同一Server，就象将一个对象或引用赋值给另一个引用一样。Binder模糊了进程边界，淡化了进程间通信过程，整个系统仿佛运行于同一个面向对象的程序之中。形形色色的Binder对象以及星罗棋布的引用仿佛粘接各个应用程序的胶水，这也是Binder在英文里的原意。
@@ -115,7 +113,6 @@ struct flat_binder_object {
 		- Binder 实体在驱动中的表述
 驱动中的Binder实体也叫‘节点’，隶属于提供实体的进程，由struct binder_node结构来表示：
 ```cpp
-<<<<<<< HEAD
 struct binder_node {
 	int debug_id;
 	struct binder_work work;
@@ -927,6 +924,8 @@ retry:
 ```
 传入的参数*consumed == 0，于是写入一个值BR_NOOP到参数ptr指向的缓冲区中去，即用户传进来的bwr.read_buffer缓冲区。这时候，thread->transaction_stack == NULL，并且thread->todo列表也是空的，这表示当前线程没有事务需要处理，于是wait_for_proc_work为true，表示要去查看proc是否有未处理的事务。当前thread->return_error == BR_OK，这是前面创建binder_thread时初始化设置的。于是继续往下执行，设置thread的状态为BINDER_LOOPER_STATE_WAITING，表示线程处于等待状态。调用binder_set_nice函数设置当前线程的优先级别为proc->default_priority，这是因为thread要去处理属于proc的事务，因此要将此thread的优先级别设置和proc一样。在这个场景中，proc也没有事务处理，即binder_has_proc_work(proc, thread)为false。如果文件打开模式为非阻塞模式，即non_block为true，那么函数就直接返回-EAGAIN，要求用户重新执行ioctl；否则的话，就通过当前线程就通过wait_event_interruptible_exclusive函数进入休眠状态，等待请求到来再唤醒了。
 
+##Android深入浅出之Binder机制
+
 ##浅谈Android系统进程间通信（IPC）机制Binder中的Server和Client获得Service Manager接口之路
 1. Service Manager在Binder机制中既充当守护进程的角色，同时它也充当着Server角色，然而它又与一般的Server不一样。对于普通的Server来说，Client如果想要获得Server的远程接口，那么必须通过Service Manager远程接口提供的getService接口来获得，这本身就是一个使用Binder机制来进行进程间通信的过程。而对于Service Manager这个Server来说，Client如果想要获得Service Manager远程接口，却不必通过进程间通信机制来获得，因为Service Manager远程接口是一个特殊的Binder引用，它的引用句柄一定是0。
 获取Service Manager远程接口的函数是defaultServiceManager:
@@ -954,12 +953,356 @@ sp<IServiceManager> gDefaultServiceManager;
 ![0_1311363642X5Cd.gif.jpeg](/home/xb/Desktop/ScreenShots/0_1311363642X5Cd.gif.jpeg)
 BpServiceManager类继承了BpInterface<IServiceManager>类，BpInterface是一个模板类，它定义在frameworks/base/include/binder/IInterface.h文件中
 IServiceManager类继承了IInterface类，而IInterface类和BpRefBase类又分别继承了RefBase类。在BpRefBase类中，有一个成员变量mRemote，它的类型是IBinder*，实现类为BpBinder，它表示一个Binder引用，引用句柄值保存在BpBinder类的mHandle成员变量中。BpBinder类通过IPCThreadState类来和Binder驱动程序并互，而IPCThreadState又通过它的成员变量mProcess来打开/dev/binder设备文件，mProcess成员变量的类型为ProcessState。ProcessState类打开设备/dev/binder之后，将打开文件描述符保存在mDriverFD成员变量中，以供后续使用
-
-
-
-
-=======
-http://www.uml.org.cn/mobiledev/201607083.asp
-
+回到defaultServiceManager函数中，最终结果为：
+```cpp
+gDefaultServiceManager = new BpServiceManager(new BpBinder(0)); 
 ```
->>>>>>> c68aba224b6656df5bbdad7704707b0b4ff2b68a
+ 这样，Service Manager远程接口就创建完成了，它本质上是一个BpServiceManager，包含了一个句柄值为0的Binder引用。
+在Android系统的Binder机制中，Server和Client拿到这个Service Manager远程接口之后怎么用呢？
+对Server来说，就是调用IServiceManager::addService这个接口来和Binder驱动程序交互了，即调用BpServiceManager::addService 。而BpServiceManager::addService又会调用通过其基类BpRefBase的成员函数remote获得原先创建的BpBinder实例，接着调用BpBinder::transact成员函数。在BpBinder::transact函数中，又会调用IPCThreadState::transact成员函数，这里就是最终与Binder驱动程序交互的地方了。回忆一下前面的类图，IPCThreadState有一个PorcessState类型的成中变量mProcess，而mProcess有一个成员变量mDriverFD，它是设备文件/dev/binder的打开文件描述符，因此，IPCThreadState就相当于间接在拥有了设备文件/dev/binder的打开文件描述符，于是，便可以与Binder驱动程序交互了。
+
+## Android系统进程间通信（IPC）机制Binder中的Server启动过程源代码分析
+Server获得了Service Manager远程接口之后，就要把自己的Service添加到Service Manager中去，然后把自己启动起来，等待Client的请求。本文将通过分析源代码了解Server的启动过程是怎么样的。这里，我们就通过分析MediaPlayerService的实现来了解Media Server的启动过程
+1.MediaPlayerService的类图
+![0_1311479168os88.gif.jpeg](/home/xb/Desktop/ScreenShots/0_1311479168os88.gif.jpeg)
+从类图可以看到：BnMediaPlayerService实际是继承了IMediaPlayerService和BBinder类。IMediaPlayerService和BBinder类又分别继承了IInterface和IBinder类，IInterface和IBinder类又同时继承了RefBase类。
+实际上，BnMediaPlayerService并不是直接接收到Client处发送过来的请求，而是使用了IPCThreadState接收Client处发送过来的请求，而IPCThreadState又借助了ProcessState类来与Binder驱动程序交互。
+2.MediaService服务启动流程分析
+- 启动MediaPlayerService
+```cpp
+int main(int argc, char** argv)  
+{  
+    sp<ProcessState> proc(ProcessState::self());  
+    sp<IServiceManager> sm = defaultServiceManager();  
+    LOGI("ServiceManager: %p", sm.get());  
+    AudioFlinger::instantiate();  
+    MediaPlayerService::instantiate();  
+    CameraService::instantiate();  
+    AudioPolicyService::instantiate();  
+    ProcessState::self()->startThreadPool();  
+    IPCThreadState::self()->joinThreadPool();  
+}
+```
+这句代码的作用是通过ProcessState::self()调用创建一个ProcessState实例。
+```cpp
+sp<ProcessState> ProcessState::self()  
+{  
+    if (gProcess != NULL) return gProcess;  
+    AutoMutex _l(gProcessMutex);  
+    if (gProcess == NULL) gProcess = new ProcessState;  
+    return gProcess;  
+}
+```
+ProcessState的构造函数
+```cpp
+ProcessState::ProcessState()  
+    : mDriverFD(open_driver())  
+    , mVMStart(MAP_FAILED)  
+    , mManagesContexts(false)  
+    , mBinderContextCheckFunc(NULL)  
+    , mBinderContextUserData(NULL)  
+    , mThreadPoolStarted(false)  
+    , mThreadPoolSeq(1)  
+{ 
+	mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
+	....
+}
+```
+构造函数有两个关键地方，一是通过open_driver函数打开Binder设备文件/dev/binder，并将打开设备文件描述符保存在成员变量mDriverFD中；二是通过mmap来把设备文件/dev/binder映射到内存中。 先看open_driver函数的实现
+```cpp
+static int open_driver()  
+{  
+    if (gSingleProcess) {  
+        return -1;  
+    }  
+    int fd = open("/dev/binder", O_RDWR);  
+    if (fd >= 0) {  
+        fcntl(fd, F_SETFD, FD_CLOEXEC);  
+        int vers;  
+#if defined(HAVE_ANDROID_OS)  
+        status_t result = ioctl(fd, BINDER_VERSION, &vers);  
+#else  
+        status_t result = -1;  
+        errno = EPERM;  
+#endif  
+        if (result == -1) {  
+            LOGE("Binder ioctl to obtain version failed: %s", strerror(errno));  
+            close(fd);  
+            fd = -1;  
+        }  
+        if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {  
+            LOGE("Binder driver protocol does not match user space protocol!");  
+            close(fd);  
+            fd = -1;  
+        }  
+#if defined(HAVE_ANDROID_OS)  
+        size_t maxThreads = 15;  
+        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);  
+        if (result == -1) {  
+            LOGE("Binder ioctl to set max threads failed: %s", strerror(errno));  
+        }  
+#endif  
+    } else {  
+        LOGW("Opening '/dev/binder' failed: %s\n", strerror(errno));  
+    }  
+    return fd;  
+}
+```
+这个函数的作用主要是通过open文件操作函数来打开/dev/binder设备文件，然后再调用ioctl文件控制函数来分别执行BINDER_VERSION和BINDER_SET_MAX_THREADS两个命令来和Binder驱动程序进行交互，前者用于获得当前Binder驱动程序的版本号，后者用于通知Binder驱动程序，MediaPlayerService最多可同时启动15个线程来处理Client端的请求。打开/dev/binder设备文件后，Binder驱动程序就为MediaPlayerService进程创建了一个struct binder_proc结构体实例来维护MediaPlayerService进程上下文相关信息。
+result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);  
+这个函数调用最终进入到Binder驱动程序的binder_ioctl函数中，我们只关注BINDER_SET_MAX_THREADS相关的部分逻辑：
+```cpp
+static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)  
+{  
+    int ret;  
+    struct binder_proc *proc = filp->private_data;  
+    struct binder_thread *thread;  
+    unsigned int size = _IOC_SIZE(cmd);  
+    void __user *ubuf = (void __user *)arg;  
+    /*printk(KERN_INFO "binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/  
+    ret = wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);  
+    if (ret)  
+        return ret;  
+    mutex_lock(&binder_lock);  
+    thread = binder_get_thread(proc);  
+    if (thread == NULL) {  
+        ret = -ENOMEM;  
+        goto err;  
+    }  
+    switch (cmd) {  
+    ......  
+    case BINDER_SET_MAX_THREADS:  
+        if (copy_from_user(&proc->max_threads, ubuf, sizeof(proc->max_threads))) {  
+            ret = -EINVAL;  
+            goto err;  
+        }  
+        break;  
+    ......  
+    }  
+    ret = 0;  
+err:  
+    ......  
+    return ret;  
+}
+```
+只是简单地把用户传进来的参数保存在proc->max_threads中就完毕了。注意，这里再调用binder_get_thread函数的时候，就可以在proc->threads中找到当前线程对应的struct binder_thread结构了，因为前面已经创建好并保存在proc->threads红黑树中。
+回到ProcessState构造函数中，mmap函数调用完成之后，Binder驱动程序就为当前进程预留了BINDER_VM_SIZE大小的内存空间了。
+这样，ProcessState全局唯一变量gProcess就创建完毕了，回到frameworks/base/media/mediaserver/main_mediaserver.cpp文件中的main函数， 再接下来，就进入到MediaPlayerService::instantiate函数把MediaPlayerService添加到Service Manger中去了。
+```cpp
+void MediaPlayerService::instantiate() {  
+    defaultServiceManager()->addService(  
+            String16("media.player"), new MediaPlayerService());  
+}
+```
+```cpp
+class BpServiceManager : public BpInterface<IServiceManager>  
+{  
+public:  
+    BpServiceManager(const sp<IBinder>& impl)  
+        : BpInterface<IServiceManager>(impl)  
+    {  
+    }  
+    ......  
+    virtual status_t addService(const String16& name, const sp<IBinder>& service)  
+    {  
+        Parcel data, reply;  
+		//writeInterfaceToken它的作用是写入一个整数和一个字符串到Parcel中去。
+        data.writeInterfaceToken(IServiceManager::getInterfaceDescriptor());  
+        data.writeString16(name);  
+/*writeStrongBinder这里写入一个Binder对象到Parcel去。我们重点看一下这个函数的实现，因为它涉及到进程间传输Binder实体的问题*/
+        data.writeStrongBinder(service);  
+        status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);  
+        return err == NO_ERROR ? reply.readExceptionCode()   
+    }  
+    ......  
+};
+```
+```cpp
+status_t Parcel::writeStrongBinder(const sp<IBinder>& val)  
+{  
+    return flatten_binder(ProcessState::self(), val, this);  
+}
+```
+```cpp
+status_t flatten_binder(const sp<ProcessState>& proc,  
+    const sp<IBinder>& binder, Parcel* out)  
+{  
+    flat_binder_object obj;  
+    obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;  
+/*传进来的binder即为MediaPlayerService::instantiate函数中new出来的MediaPlayerService实例，因此，不为空。又由于MediaPlayerService继承自BBinder类，它是一个本地Binder实体，因此binder->localBinder返回一个BBinder指针，而且肯定不为空，于是执行下面语句：*/
+    if (binder != NULL) {  
+        IBinder *local = binder->localBinder();  
+        if (!local) {  
+            BpBinder *proxy = binder->remoteBinder();  
+            if (proxy == NULL) {  
+                LOGE("null proxy");  
+            }  
+            const int32_t handle = proxy ? proxy->handle() : 0;  
+            obj.type = BINDER_TYPE_HANDLE;  
+            obj.handle = handle;  
+            obj.cookie = NULL;  
+        } else {  
+/*表明传输的时Binder实体，设置了flat_binder_obj的其他成员变量，注意，指向这个Binder实体地址的指针local保存在flat_binder_obj的成员变量cookie中*/
+            obj.type = BINDER_TYPE_BINDER;  
+            obj.binder = local->getWeakRefs();  
+            obj.cookie = local;  
+        }  
+    } else {  
+        obj.type = BINDER_TYPE_BINDER;  
+        obj.binder = NULL;  
+        obj.cookie = NULL;  
+    }  
+    return finish_flatten_binder(binder, obj, out);  
+}
+```
+函数调用finish_flatten_binder来将这个flat_binder_obj写入到Parcel中去
+```cpp
+inline static status_t finish_flatten_binder(  
+    const sp<IBinder>& binder, const flat_binder_object& flat, Parcel* out)  
+{  
+    return out->writeObject(flat, false);  
+}
+```
+```cpp
+status_t Parcel::writeObject(const flat_binder_object& val, bool nullMetaData)  
+{  
+    const bool enoughData = (mDataPos+sizeof(val)) <= mDataCapacity;  
+    const bool enoughObjects = mObjectsSize < mObjectsCapacity;  
+    if (enoughData && enoughObjects) {  
+restart_write:  
+        *reinterpret_cast<flat_binder_object*>(mData+mDataPos) = val;  
+        // Need to write meta-data?  
+        if (nullMetaData || val.binder != NULL) {  
+/*除了把flat_binder_obj写到Parcel里面之内，还要记录这个flat_binder_obj在Parcel里面的偏移位置*/
+            mObjects[mObjectsSize] = mDataPos;  
+            acquire_object(ProcessState::self(), val, this);  
+            mObjectsSize++;  
+        }  
+        // remember if it's a file descriptor  
+        if (val.type == BINDER_TYPE_FD) {  
+            mHasFds = mFdsKnown = true;  
+        }  
+        return finishWrite(sizeof(flat_binder_object));  
+    }  
+  
+    if (!enoughData) {  
+        const status_t err = growData(sizeof(val));  
+        if (err != NO_ERROR) return err;  
+    }  
+    if (!enoughObjects) {  
+        size_t newSize = ((mObjectsSize+2)*3)/2;  
+        size_t* objects = (size_t*)realloc(mObjects, newSize*sizeof(size_t));  
+        if (objects == NULL) return NO_MEMORY;  
+        mObjects = objects;  
+        mObjectsCapacity = newSize;  
+    }  
+    goto restart_write;  
+}
+```
+回到BpServiceManager::addService函数中，调用
+status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);
+这里的remote成员函数来自于BpRefBase类，它返回一个BpBinder指针。因此，我们继续进入到BpBinder::transact函数:
+```cpp
+status_t BpBinder::transact(  
+    uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)  
+{  
+    // Once a binder has died, it will never come back to life.  
+    if (mAlive) {  
+        status_t status = IPCThreadState::self()->transact(  
+            mHandle, code, data, reply, flags);  
+        if (status == DEAD_OBJECT) mAlive = 0;  
+        return status;  
+    }  
+    return DEAD_OBJECT;  
+}
+```
+```cpp
+status_t IPCThreadState::transact(int32_t handle,  
+                                  uint32_t code, const Parcel& data,  
+                                  Parcel* reply, uint32_t flags)  
+{  
+    status_t err = data.errorCheck();  
+    flags |= TF_ACCEPT_FDS;  
+    IF_LOG_TRANSACTIONS() {  
+        TextOutput::Bundle _b(alog);  
+        alog << "BC_TRANSACTION thr " << (void*)pthread_self() << " / hand "  
+            << handle << " / code " << TypeCode(code) << ": "  
+            << indent << data << dedent << endl;  
+    }  
+    if (err == NO_ERROR) {  
+        LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),  
+            (flags & TF_ONE_WAY) == 0 ? "READ REPLY" : "ONE WAY");  
+/*函数首先调用writeTransactionData函数准备好一个struct binder_transaction_data结构体变量，这个是等一下要传输给Binder驱动程序的。*/
+        err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);  
+    }  
+    if (err != NO_ERROR) {  
+        if (reply) reply->setError(err);  
+        return (mLastError = err);  
+    }  
+    if ((flags & TF_ONE_WAY) == 0) {  
+        #if 0  
+        if (code == 4) { // relayout  
+            LOGI(">>>>>> CALLING transaction 4");  
+        } else {  
+            LOGI(">>>>>> CALLING transaction %d", code);  
+        }  
+        #endif  
+        if (reply) {  
+            err = waitForResponse(reply);  
+        } else {  
+            Parcel fakeReply;  
+            err = waitForResponse(&fakeReply);  
+        }  
+        #if 0  
+        if (code == 4) { // relayout  
+            LOGI("<<<<<< RETURNING transaction 4");  
+        } else {  
+            LOGI("<<<<<< RETURNING transaction %d", code);  
+        }  
+        #endif  
+        IF_LOG_TRANSACTIONS() {  
+            TextOutput::Bundle _b(alog);  
+            alog << "BR_REPLY thr " << (void*)pthread_self() << " / hand "  
+                << handle << ": ";  
+            if (reply) alog << indent << *reply << dedent << endl;  
+            else alog << "(none requested)" << endl;  
+        }  
+    } else {  
+        err = waitForResponse(NULL, NULL);  
+    }  
+    return err;  
+}
+```
+```cpp
+status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,  
+    int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)  
+{  
+    binder_transaction_data tr;  
+  
+    tr.target.handle = handle;  
+    tr.code = code;  
+    tr.flags = binderFlags;  
+      
+    const status_t err = data.errorCheck();  
+    if (err == NO_ERROR) {  
+        tr.data_size = data.ipcDataSize();  
+        tr.data.ptr.buffer = data.ipcData();  
+        tr.offsets_size = data.ipcObjectsCount()*sizeof(size_t);  
+        tr.data.ptr.offsets = data.ipcObjects();  
+    } else if (statusBuffer) {  
+        tr.flags |= TF_STATUS_CODE;  
+        *statusBuffer = err;  
+        tr.data_size = sizeof(status_t);  
+        tr.data.ptr.buffer = statusBuffer;  
+        tr.offsets_size = 0;  
+        tr.data.ptr.offsets = NULL;  
+    } else {  
+        return (mLastError = err);  
+    }  
+      
+    mOut.writeInt32(cmd);  
+    mOut.write(&tr, sizeof(tr));  
+      
+    return NO_ERROR;  
+}
+```

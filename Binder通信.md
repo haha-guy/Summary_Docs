@@ -189,6 +189,7 @@ mmap(NULL, MAP_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
 ##浅谈Service Manager成为Android进程间通信（IPC）机制Binder守护进程之路
 1. Service Manager的入口位于service_manager.c文件中的main函数：
 ```cpp
+//Service Manager进程中
     int main(int argc, char **argv)  
     {  
         struct binder_state *bs;  
@@ -223,6 +224,7 @@ fd是文件描述符，即表示打开的/dev/binder设备文件描述符；mapp
 2. Binder驱动程序中的binder_open函数
 前面执行open("/dev/binder", O_RDWR)就进入到Binder驱动程序的binder_open函数
 ```cpp
+//前面main函数中调用open打开/dev/binder文件时，实际调用的是该函数，内核代service manager进程执行
 static int binder_open(struct inode *nodp, struct file *filp)  
 {  
     struct binder_proc *proc;  
@@ -299,6 +301,7 @@ static int binder_open(struct inode *nodp, struct file *filp)
 bs->mapped = mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);  
 对应Binder驱动程序的binder_mmap函数:
 ```cpp
+//service manager进程，内核代进程执行
 static int binder_mmap(struct file *filp, struct vm_area_struct *vma)  
 {  
     int ret;  
@@ -922,7 +925,13 @@ retry:
         .......  
 }
 ```
-传入的参数*consumed == 0，于是写入一个值BR_NOOP到参数ptr指向的缓冲区中去，即用户传进来的bwr.read_buffer缓冲区。这时候，thread->transaction_stack == NULL，并且thread->todo列表也是空的，这表示当前线程没有事务需要处理，于是wait_for_proc_work为true，表示要去查看proc是否有未处理的事务。当前thread->return_error == BR_OK，这是前面创建binder_thread时初始化设置的。于是继续往下执行，设置thread的状态为BINDER_LOOPER_STATE_WAITING，表示线程处于等待状态。调用binder_set_nice函数设置当前线程的优先级别为proc->default_priority，这是因为thread要去处理属于proc的事务，因此要将此thread的优先级别设置和proc一样。在这个场景中，proc也没有事务处理，即binder_has_proc_work(proc, thread)为false。如果文件打开模式为非阻塞模式，即non_block为true，那么函数就直接返回-EAGAIN，要求用户重新执行ioctl；否则的话，就通过当前线程就通过wait_event_interruptible_exclusive函数进入休眠状态，等待请求到来再唤醒了。
+传入的参数*consumed == 0，于是写入一个值BR_NOOP到参数ptr指向的缓冲区中去，即用户传进来的bwr.read_buffer缓冲区。这时候，thread->transaction_stack == NULL，并且thread->todo列表也是空的，这表示当前线程没有事务需要处理，于是wait_for_proc_work为true，表示要去查看proc是否有未处理的事务。当前thread->return_error == BR_OK，这是前面创建binder_thread时初始化设置的。于是继续往下执行，设置thread的状态为BINDER_LOOPER_STATE_WAITING，表示线程处于等待状态。调用binder_set_nice函数设置当前线程的优先级别为proc->default_priority，这是因为thread要去处理属于proc的事务，因此要将此thread的优先级别设置和proc一样。在这个场景中，proc也没有事务处理，即binder_has_proc_work(proc, thread)为false。如果文件打开模式为非阻塞模式，即non_block为true，那么函数就直接返回-EAGAIN，要求用户重新执行ioctl；**否则的话，就通过当前线程就通过wait_event_interruptible_exclusive函数进入休眠状态，等待请求到来再唤醒了。**
+Service Manager是成为Android进程间通信（IPC）机制Binder守护进程的过程是这样的：
+        1. 打开/dev/binder文件：open("/dev/binder", O_RDWR);
+        2. 建立128K内存映射：mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);
+        3. 通知Binder驱动程序它是守护进程：binder_become_context_manager(bs);
+        4. 进入循环等待请求的到来：binder_loop(bs, svcmgr_handler);
+对第4点的一点说明：SMgr在binder_loop中进入无限循环，循环中,将bwr的wirte相关变量置为0执行BINDER_WRITE_READ ioctl命令，进入binder_buffer_read函数，在该函数中发现事务堆栈和to-do队列为空时，线程进入睡眠。
 
 ##Android深入浅出之Binder机制
 
@@ -1306,3 +1315,129 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     return NO_ERROR;  
 }
 ```
+
+##Android系统进程间通信Binder机制在应用程序框架层的Java接口源代码分析
+1. 要获取的Service Manager的Java远程接口是一个ServiceManagerProxy对象的IServiceManager接口。
+![0_1311872523tLjI.gif.jpeg](./ScreenShots/0_1311872523tLjI.gif.jpeg)
+从ServiceManagerProxy类的构造函数可以看出，它需要一个BinderProxy对象的IBinder接口来作为参数。因此，要获取Service Manager的Java远程接口ServiceManagerProxy，首先要有一个BinderProxy对象。
+再来看一下是通过什么路径来获取Service Manager的Java远程接口ServiceManagerProxy的。
+![0_1311872907IM3i.gif.jpeg](./ScreenShots/0_1311872907IM3i.gif.jpeg)
+ServiceManager类有一个静态成员函数getIServiceManager，它的作用就是用来获取Service Manager的Java远程接口了，而这个函数又是通过ServiceManagerNative来获取Service Manager的Java远程接口的。
+
+2. 接下来，我们就看一下ServiceManager.getIServiceManager这个函数的实现
+```cpp
+public final class ServiceManager {  
+    ......  
+    private static IServiceManager sServiceManager;  
+    ......  
+    private static IServiceManager getIServiceManager() {  
+        if (sServiceManager != null) {  
+            return sServiceManager;  
+        }  
+        // Find the service manager  
+        sServiceManager = ServiceManagerNative.asInterface(BinderInternal.getContextObject());  
+        return sServiceManager;  
+    }  
+    ......  
+}
+```
+在调用ServiceManagerNative.asInterface函数之前，首先要通过BinderInternal.getContextObject函数来获得一个BinderProxy对象。
+BinderInternal.getContextObject的实现，
+```cpp
+public class BinderInternal {  
+    ......  
+    /** 
+    * Return the global "context object" of the system.  This is usually 
+    * an implementation of IServiceManager, which you can use to find 
+    * other services. 
+    */  
+    public static final native IBinder getContextObject();  
+    ......  
+}
+```
+```cpp
+static jobject android_os_BinderInternal_getContextObject(JNIEnv* env, jobject clazz)  
+{  
+    sp<IBinder> b = ProcessState::self()->getContextObject(NULL);  
+    return javaObjectForIBinder(env, b);  
+}
+```
+ProcessState::self()->getContextObject函数返回一个BpBinder对象，它的句柄值是0，即下面语句：
+sp<IBinder> b = new BpBinder(0);
+```cpp
+jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)  
+{  
+    if (val == NULL) return NULL;  
+  
+    if (val->checkSubclass(&gBinderOffsets)) {  
+        // One of our own!  
+        jobject object = static_cast<JavaBBinder*>(val.get())->object();  
+        //printf("objectForBinder %p: it's our own %p!\n", val.get(), object);  
+        return object;  
+    }  
+  
+    // For the rest of the function we will hold this lock, to serialize  
+    // looking/creation of Java proxies for native Binder proxies.  
+    AutoMutex _l(mProxyLock);  
+  
+    // Someone else's...  do we know about it?  
+    jobject object = (jobject)val->findObject(&gBinderProxyOffsets);  
+    if (object != NULL) {  
+        jobject res = env->CallObjectMethod(object, gWeakReferenceOffsets.mGet);  
+        if (res != NULL) {  
+            LOGV("objectForBinder %p: found existing %p!\n", val.get(), res);  
+            return res;  
+        }  
+        LOGV("Proxy object %p of IBinder %p no longer in working set!!!", object, val.get());  
+        android_atomic_dec(&gNumProxyRefs);  
+        val->detachObject(&gBinderProxyOffsets);  
+        env->DeleteGlobalRef(object);  
+    }  
+    object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);  
+    if (object != NULL) {  
+        LOGV("objectForBinder %p: created new %p!\n", val.get(), object);  
+        // The proxy holds a reference to the native object.  
+        env->SetIntField(object, gBinderProxyOffsets.mObject, (int)val.get());  
+        val->incStrong(object);  
+        // The native object needs to hold a weak reference back to the  
+        // proxy, so we can retrieve the same proxy if it is still active.  
+        jobject refObject = env->NewGlobalRef(  
+                env->GetObjectField(object, gBinderProxyOffsets.mSelf));  
+        val->attachObject(&gBinderProxyOffsets, refObject,  
+                jnienv_to_javavm(env), proxy_cleanup);  
+        // Note that a new object reference has been created.  
+        android_atomic_inc(&gNumProxyRefs);  
+        incRefsCreated(env);  
+    }  
+    return object;  
+}
+```
+```cpp
+static struct bindernative_offsets_t  
+{  
+    // Class state.  
+    jclass mClass;  
+    jmethodID mExecTransact;  
+    // Object state.  
+    jfieldID mObject;  
+} gBinderOffsets;
+```
+gBinderOffsets变量是用来记录上面第二个类图中的Binder类的相关信息的，它是在注册Binder类的JNI方法的int_register_android_os_Binder函数初始化的
+```cpp
+static struct binderproxy_offsets_t  
+{  
+    // Class state.  
+    jclass mClass;  
+    jmethodID mConstructor;  
+    jmethodID mSendDeathNotice;  
+    // Object state.  
+    jfieldID mObject;  
+    jfieldID mSelf;  
+} gBinderProxyOffsets;
+```
+gBinderProxyOffsets是用来变量是用来记录上面第一个图中的BinderProxy类的相关信息的，它是在注册BinderProxy类的JNI方法的int_register_android_os_BinderProxy函数初始化
+回到函数javaObjectForIBinder,
+object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);  
+这里，就创建了一个BinderProxy对象了。创建了之后，要把这个BpBinder对象和这个BinderProxy对象关联起来：
+env->SetIntField(object, gBinderProxyOffsets.mObject, (int)val.get());
+就是通过BinderProxy.mObject成员变量来关联的了，BinderProxy.mObject成员变量记录了这个BpBinder对象的地址。

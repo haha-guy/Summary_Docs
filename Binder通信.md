@@ -936,8 +936,8 @@ Service Manager是成为Android进程间通信（IPC）机制Binder守护进程�
 ##Android深入浅出之Binder机制
 
 ##浅谈Android系统进程间通信（IPC）机制Binder中的Server和Client获得Service Manager接口之路
-1. Service Manager在Binder机制中既充当守护进程的角色，同时它也充当着Server角色，然而它又与一般的Server不一样。对于普通的Server来说，Client如果想要获得Server的远程接口，那么必须通过Service Manager远程接口提供的getService接口来获得，这本身就是一个使用Binder机制来进行进程间通信的过程。而对于Service Manager这个Server来说，Client如果想要获得Service Manager远程接口，却不必通过进程间通信机制来获得，因为Service Manager远程接口是一个特殊的Binder引用，它的引用句柄一定是0。
-获取Service Manager远程接口的函数是defaultServiceManager:
+1. Service Manager在Binder机制中既充当守护进程的角色，同时它也充当着Server角色，然而它又与一般的Server不一样。**普通的Server来说，Client如果想要获得Server的远程接口，那么必须通过Service Manager远程接口提供的getService接口来获得**就是一个使用Binder机制来进行进程间通信的过程。而对于Service Manager这个Server来说，Client如果想要获得Service Manager远程接口，却不必通过进程间通信机制来获得，因为Service Manager远程接口是一个特殊的Binder引用，它的引用句柄一定是0。
+**Service Manager远程接口的函数是defaultServiceManager:**
 ```cpp
 sp<IServiceManager> defaultServiceManager()  
 {  
@@ -968,14 +968,14 @@ gDefaultServiceManager = new BpServiceManager(new BpBinder(0));
 ```
  这样，Service Manager远程接口就创建完成了，它本质上是一个BpServiceManager，包含了一个句柄值为0的Binder引用。
 在Android系统的Binder机制中，Server和Client拿到这个Service Manager远程接口之后怎么用呢？
-对Server来说，就是调用IServiceManager::addService这个接口来和Binder驱动程序交互了，即调用BpServiceManager::addService 。而BpServiceManager::addService又会调用通过其基类BpRefBase的成员函数remote获得原先创建的BpBinder实例，接着调用BpBinder::transact成员函数。在BpBinder::transact函数中，又会调用IPCThreadState::transact成员函数，这里就是最终与Binder驱动程序交互的地方了。回忆一下前面的类图，IPCThreadState有一个PorcessState类型的成中变量mProcess，而mProcess有一个成员变量mDriverFD，它是设备文件/dev/binder的打开文件描述符，因此，IPCThreadState就相当于间接在拥有了设备文件/dev/binder的打开文件描述符，于是，便可以与Binder驱动程序交互了。
+**对server来说，就是调用IServiceManager::addService这个接口来和Binder驱动程序交互了，即调用BpServiceManager::addService 。而BpServiceManager::addService又会调用通过其基类BpRefBase的成员函数remote获得原先创建的BpBinder实例，接着调用BpBinder::transact成员函数。在BpBinder::transact函数中，又会调用IPCThreadState::transact成员函数，这里就是最终与Binder驱动程序交互的地方了。回忆一下前面的类图，IPCThreadState有一个PorcessState类型的成中变量mProcess，而mProcess有一个成员变量mDriverFD，它是设备文件/dev/binder的打开文件描述符，因此，IPCThreadState就相当于间接在拥有了设备文件/dev/binder的打开文件描述符，于是，便可以与Binder驱动程序交互了。**
 
 ## Android系统进程间通信（IPC）机制Binder中的Server启动过程源代码分析
 Server获得了Service Manager远程接口之后，就要把自己的Service添加到Service Manager中去，然后把自己启动起来，等待Client的请求。本文将通过分析源代码了解Server的启动过程是怎么样的。这里，我们就通过分析MediaPlayerService的实现来了解Media Server的启动过程
 1.MediaPlayerService的类图
 ![0_1311479168os88.gif.jpeg](/home/xb/Desktop/ScreenShots/0_1311479168os88.gif.jpeg)
 从类图可以看到：BnMediaPlayerService实际是继承了IMediaPlayerService和BBinder类。IMediaPlayerService和BBinder类又分别继承了IInterface和IBinder类，IInterface和IBinder类又同时继承了RefBase类。
-实际上，BnMediaPlayerService并不是直接接收到Client处发送过来的请求，而是使用了IPCThreadState接收Client处发送过来的请求，而IPCThreadState又借助了ProcessState类来与Binder驱动程序交互。
+实际上，BnMediaPlayerService并不是直接接收到Client处发送过来的请求，**而是使用了IPCThreadState接收Client处发送过来的请求(因为只有驱动知道Client向Server发起了请求，这时候Client通过对/proc/binder文件进行操作，驱动将请求通过IPCThreadState转发进而进入到Server的onTranact函数处理。)**，而IPCThreadState又借助了ProcessState类来与Binder驱动程序交互。
 2.MediaService服务启动流程分析
 - 启动MediaPlayerService
 ```cpp
@@ -1057,7 +1057,7 @@ static int open_driver()
     return fd;  
 }
 ```
-这个函数的作用主要是通过open文件操作函数来打开/dev/binder设备文件，然后再调用ioctl文件控制函数来分别执行BINDER_VERSION和BINDER_SET_MAX_THREADS两个命令来和Binder驱动程序进行交互，前者用于获得当前Binder驱动程序的版本号，后者用于通知Binder驱动程序，MediaPlayerService最多可同时启动15个线程来处理Client端的请求。打开/dev/binder设备文件后，Binder驱动程序就为MediaPlayerService进程创建了一个struct binder_proc结构体实例来维护MediaPlayerService进程上下文相关信息。
+这个函数的作用主要是通过open文件操作函数来打开/dev/binder设备文件，然后再调用ioctl文件控制函数来分别执行BINDER_VERSION和BINDER_SET_MAX_THREADS两个命令来和Binder驱动程序进行交互，前者用于获得当前Binder驱动程序的版本号，后者用于通知Binder驱动程序，MediaPlayerService最多可同时启动15个线程来处理Client端的请求。 这里有一个重要的地方要注意的是，由于这里是打开设备文件/dev/binder之后，第一次进入到binder_ioctl函数，因此，这里调用binder_get_thread的时候，就会为当前线程创建一个struct binder_thread结构体变量来维护线程上下文信息。打开/dev/binder设备文件后，Binder驱动程序就为MediaPlayerService进程创建了一个struct binder_proc结构体实例来维护MediaPlayerService进程上下文相关信息。
 result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);  
 这个函数调用最终进入到Binder驱动程序的binder_ioctl函数中，我们只关注BINDER_SET_MAX_THREADS相关的部分逻辑：
 ```cpp
@@ -1210,7 +1210,7 @@ restart_write:
 ```
 回到BpServiceManager::addService函数中，调用
 status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);
-这里的remote成员函数来自于BpRefBase类，它返回一个BpBinder指针。因此，我们继续进入到BpBinder::transact函数:
+这里的remote成员函数来自于BpRefBase类，它返回一个BpBinder指针（这里使用Binder通信，向ServiceManager进程发起请求，因此需要BpBinder对象来发送请求）。因此，我们继续进入到BpBinder::transact函数:
 ```cpp
 status_t BpBinder::transact(  
     uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)  
@@ -1315,6 +1315,14 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     return NO_ERROR;  
 }
 ```
+![2081352541.jpg](./ScreenShots/2081352541.jpg)
+
+##Android系统进程间通信（IPC）机制Binder中的Client获得Server远程接口过程源代码分析 
+1. 我们要获得MediaPlayerService的远程接口，实际上就是要获得一个称为BpMediaPlayerService对象的IMediaPlayerService接口。现在，我们就先来看一下BpMediaPlayerService的类图
+![0_13117045717gMi.gif.jpeg](./ScreenShots/0_13117045717gMi.gif.jpeg)
+BpMediaPlayerService的构造函数有一个参数impl，它的类型为const sp<IBinder>&，从上面的描述中，这个实际上就是一个BpBinder对象。这样，要创建一个BpMediaPlayerService对象，首先就要有一个BpBinder对象。再来看BpBinder类的构造函数，它有一个参数handle，类型为int32_t，这个参数的意义就是请求MediaPlayerService这个远程接口的进程对MediaPlayerService这个Binder实体的引用了。因此，获取MediaPlayerService这个远程接口的本质问题就变为从Service Manager中获得MediaPlayerService的一个句柄了。
+![1035023320.jpg](./ScreenShots/1035023320.jpg)
+
 
 ##Android系统进程间通信Binder机制在应用程序框架层的Java接口源代码分析
 1. 要获取的Service Manager的Java远程接口是一个ServiceManagerProxy对象的IServiceManager接口。

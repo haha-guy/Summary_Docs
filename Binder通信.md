@@ -161,7 +161,7 @@ struct binder_ref {
 ```
 ![20160708316.png](/home/xb/Desktop/ScreenShots/20160708316.png)
 不同的是Binder的引用可以通过两个键值索引：
-· 对应实体在内核中的地址。注意这里指的是驱动创建于内核中的binder_node结构的地址，而不是Binder实体在用户进程中的地址。实体在内核中的地址是唯一的，用做索引不会产生二义性；但实体可能来自不同用户进程，而实体在不同用户进程中的地址可能重合，不能用来做索引。驱动利用该红黑树在一个进程中快速查找某个Binder实体所对应的引用（一个实体在一个进程中只建立一个引用）。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+· 对应实体在内核中的地址。注意这里指的是驱动创建于内核中的binder_node结构的地址，而不是Binder实体在用户进程中的地址。实体在内核中的地址是唯一的，用做索引不会产生二义性；但实体可能来自不同用户进程，而实体在不同用户进程中的地址可能重合，不能用来做索引。驱动利用该红黑树在一个进程中快速查找某个Binder实体所对应的引用（一个实体在一个进程中只建立一个引用）。
 · 引用号。引用号是驱动为引用分配的一个32位标识，在一个进程内是唯一的，而在不同进程中可能会有同样的值，这和进程的打开文件号很类似。引用号将返回给应用程序，可以看作Binder引用在用户进程中的句柄。除了0号引用在所有进程里都固定保留给SMgr，其它值由驱动动态分配。向Binder发送数据包时，应用程序将引用号填入binder_transaction_data结构的target.handle域中表明该数据包的目的Binder。驱动根据该引用号在红黑树中找到引用的binder_ref结构，进而通过其node域知道目标Binder实体所在的进程及其它相关信息，实现数据包的路由。
 
 12. Binder 内存映射和接收缓存区管理
@@ -190,34 +190,34 @@ mmap(NULL, MAP_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
 1. Service Manager的入口位于service_manager.c文件中的main函数：
 ```cpp
 //Service Manager进程中
-    int main(int argc, char **argv)  
-    {  
-        struct binder_state *bs;  
-        void *svcmgr = BINDER_SERVICE_MANAGER;  
-        bs = binder_open(128*1024);  
-        if (binder_become_context_manager(bs)) {  
-            LOGE("cannot become context manager (%s)\n", strerror(errno));  
-            return -1;  
-        }  
-        svcmgr_handle = svcmgr;  
-        binder_loop(bs, svcmgr_handler);  
-        return 0;  
-    }  
+    int main(int argc, char **argv)
+    {
+        struct binder_state *bs;
+        void *svcmgr = BINDER_SERVICE_MANAGER;
+        bs = binder_open(128*1024);
+        if (binder_become_context_manager(bs)) {
+            LOGE("cannot become context manager (%s)\n", strerror(errno));
+            return -1;
+        }
+        svcmgr_handle = svcmgr;
+        binder_loop(bs, svcmgr_handler);
+        return 0;
+    }
 ```
 main函数主要有三个功能：一是打开Binder设备文件；二是告诉Binder驱动程序自己是Binder上下文管理者，即我们前面所说的守护进程；三是进入一个无穷循环，充当Server的角色，等待Client的请求。
 ```cpp
-    struct binder_state  
-    {  
-        int fd;  
-        void *mapped;  
-        unsigned mapsize;  
-    };  
+    struct binder_state
+    {
+        int fd;
+        void *mapped;
+        unsigned mapsize;
+    };
 ```
 fd是文件描述符，即表示打开的/dev/binder设备文件描述符；mapped是把设备文件/dev/binder映射到进程空间的起始地址；mapsize是上述内存映射空间的大小
 在Service Manger进程中binder_open函数就是打开/dev/binder设备文件，然后将其映射到自己的地址空间，映射信息保存在binder_state对象中。
 ```cpp
-/* the one magic object */  
-#define BINDER_SERVICE_MANAGER ((void*) 0) 
+/* the one magic object */
+#define BINDER_SERVICE_MANAGER ((void*) 0)
 ```
 它表示Service Manager的句柄为0。Binder通信机制使用句柄来代表远程接口，这个句柄的意义和Windows编程中用到的句柄是差不多的概念。前面说到，Service Manager在充当守护进程的同时，它充当Server的角色，当它作为远程接口使用时，它的句柄值便为0，这就是它的特殊之处，其余的Server的远程接口句柄值都是一个大于0 而且由Binder驱动程序自动进行分配的。
 
@@ -225,704 +225,704 @@ fd是文件描述符，即表示打开的/dev/binder设备文件描述符；mapp
 前面执行open("/dev/binder", O_RDWR)就进入到Binder驱动程序的binder_open函数
 ```cpp
 //前面main函数中调用open打开/dev/binder文件时，实际调用的是该函数，内核代service manager进程执行
-static int binder_open(struct inode *nodp, struct file *filp)  
-{  
-    struct binder_proc *proc;  
-    if (binder_debug_mask & BINDER_DEBUG_OPEN_CLOSE)  
-        printk(KERN_INFO "binder_open: %d:%d\n", current->group_leader->pid, current->pid);  
-    proc = kzalloc(sizeof(*proc), GFP_KERNEL);  
-    if (proc == NULL)  
-        return -ENOMEM;  
-    get_task_struct(current);  
-    proc->tsk = current;  
-    INIT_LIST_HEAD(&proc->todo);  
-    init_waitqueue_head(&proc->wait);  
-    proc->default_priority = task_nice(current);  
-    mutex_lock(&binder_lock);  
-    binder_stats.obj_created[BINDER_STAT_PROC]++;  
-    hlist_add_head(&proc->proc_node, &binder_procs);  
-    proc->pid = current->group_leader->pid;  
-    INIT_LIST_HEAD(&proc->delivered_death);  
-    filp->private_data = proc;  
-    mutex_unlock(&binder_lock);  
-    if (binder_proc_dir_entry_proc) {  
-        char strbuf[11];  
-        snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);  
-        remove_proc_entry(strbuf, binder_proc_dir_entry_proc);  
-        create_proc_read_entry(strbuf, S_IRUGO, binder_proc_dir_entry_proc, binder_read_proc_proc, proc);  
-    }  
-    return 0;  
+static int binder_open(struct inode *nodp, struct file *filp)
+{
+    struct binder_proc *proc;
+    if (binder_debug_mask & BINDER_DEBUG_OPEN_CLOSE)
+        printk(KERN_INFO "binder_open: %d:%d\n", current->group_leader->pid, current->pid);
+    proc = kzalloc(sizeof(*proc), GFP_KERNEL);
+    if (proc == NULL)
+        return -ENOMEM;
+    get_task_struct(current);
+    proc->tsk = current;
+    INIT_LIST_HEAD(&proc->todo);
+    init_waitqueue_head(&proc->wait);
+    proc->default_priority = task_nice(current);
+    mutex_lock(&binder_lock);
+    binder_stats.obj_created[BINDER_STAT_PROC]++;
+    hlist_add_head(&proc->proc_node, &binder_procs);
+    proc->pid = current->group_leader->pid;
+    INIT_LIST_HEAD(&proc->delivered_death);
+    filp->private_data = proc;
+    mutex_unlock(&binder_lock);
+    if (binder_proc_dir_entry_proc) {
+        char strbuf[11];
+        snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);
+        remove_proc_entry(strbuf, binder_proc_dir_entry_proc);
+        create_proc_read_entry(strbuf, S_IRUGO, binder_proc_dir_entry_proc, binder_read_proc_proc, proc);
+    }
+    return 0;
 }
 ```
 这个函数的主要作用是创建一个struct binder_proc数据结构来保存打开设备文件/dev/binder的进程的上下文信息，并且将这个进程上下文信息保存在打开文件结构struct file的私有数据成员变量private_data中，这样，在执行其它文件操作时，就通过打开文件结构struct file来取回这个进程上下文信息了。这个进程上下文信息同时还会保存在一个全局哈希表binder_procs中，驱动程序内部使用。
 ```cpp
-    struct binder_proc {  
-        struct hlist_node proc_node;  
+    struct binder_proc {
+        struct hlist_node proc_node;
 /*threads树用来保存binder_proc进程内用于处理用户请求的线程，它的最大数量由max_threads来决定；*/
-        struct rb_root threads;  
+        struct rb_root threads;
 /*node树成用来保存binder_proc进程内的Binder实体*/
-        struct rb_root nodes;  
+        struct rb_root nodes;
 /*refs_by_desc树和refs_by_node树用来保存binder_proc进程内的Binder引用，即引用的其它进程的Binder实体，它分别用两种方式来组织红黑树，一种是以句柄作来key值来组织，一种是以引用的实体节点的地址值作来key值来组织，它们都是表示同一样东西，只不过是为了内部查找方便而用两个红黑树来表示。*/
-        struct rb_root refs_by_desc;  
-        struct rb_root refs_by_node;  
-        int pid;  
-        struct vm_area_struct *vma;  
-        struct task_struct *tsk;  
-        struct files_struct *files;  
-        struct hlist_node deferred_work_node;  
+        struct rb_root refs_by_desc;
+        struct rb_root refs_by_node;
+        int pid;
+        struct vm_area_struct *vma;
+        struct task_struct *tsk;
+        struct files_struct *files;
+        struct hlist_node deferred_work_node;
         int deferred_work;
 /*buffer成员变量是一个void*指针，它表示要映射的物理内存在内核空间中的起始位置；*/
         void *buffer;
 /*user_buffer_offset成员变量是一个ptrdiff_t类型的变量，它表示的是内核使用的虚拟地址与进程使用的虚拟地址之间的差值，即如果某个物理页面在内核空间中对应的虚拟地址是addr的话，那么这个物理页面在进程空间对应的虚拟地址就为addr + user_buffer_offset。便于快速计算出地址*/
-        ptrdiff_t user_buffer_offset;  
-      
-        struct list_head buffers;  
-        struct rb_root free_buffers;  
-        struct rb_root allocated_buffers;  
-        size_t free_async_space;  
+        ptrdiff_t user_buffer_offset;
+
+        struct list_head buffers;
+        struct rb_root free_buffers;
+        struct rb_root allocated_buffers;
+        size_t free_async_space;
 /*pages成员变量是一个struct page*类型的数组，struct page是用来描述物理页面的数据结构；*/
-        struct page **pages;  
+        struct page **pages;
 /*buffer_size成员变量是一个size_t类型的变量，表示要映射的内存的大小；*/
-        size_t buffer_size;  
-        uint32_t buffer_free;  
-        struct list_head todo;  
-        wait_queue_head_t wait;  
-        struct binder_stats stats;  
-        struct list_head delivered_death;  
-        int max_threads;  
-        int requested_threads;  
-        int requested_threads_started;  
-        int ready_threads;  
-        long default_priority;  
-    };  
+        size_t buffer_size;
+        uint32_t buffer_free;
+        struct list_head todo;
+        wait_queue_head_t wait;
+        struct binder_stats stats;
+        struct list_head delivered_death;
+        int max_threads;
+        int requested_threads;
+        int requested_threads_started;
+        int ready_threads;
+        long default_priority;
+    };
 ```
 
 3. 打开设备文件/dev/binder的操作就完成了，接着是对打开的设备文件进行内存映射操作mmap
-bs->mapped = mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);  
+bs->mapped = mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);
 对应Binder驱动程序的binder_mmap函数:
 ```cpp
 //service manager进程，内核代进程执行
-static int binder_mmap(struct file *filp, struct vm_area_struct *vma)  
-{  
-    int ret;  
-    struct vm_struct *area;  
-    struct binder_proc *proc = filp->private_data;  
-    const char *failure_string;  
-    struct binder_buffer *buffer;  
-    if ((vma->vm_end - vma->vm_start) > SZ_4M)  
-        vma->vm_end = vma->vm_start + SZ_4M;  
-    if (binder_debug_mask & BINDER_DEBUG_OPEN_CLOSE)  
-        printk(KERN_INFO  
-            "binder_mmap: %d %lx-%lx (%ld K) vma %lx pagep %lx\n",  
-            proc->pid, vma->vm_start, vma->vm_end,  
-            (vma->vm_end - vma->vm_start) / SZ_1K, vma->vm_flags,  
-            (unsigned long)pgprot_val(vma->vm_page_prot));  
-    if (vma->vm_flags & FORBIDDEN_MMAP_FLAGS) {  
-        ret = -EPERM;  
-        failure_string = "bad vm_flags";  
-        goto err_bad_arg;  
-    }  
-    vma->vm_flags = (vma->vm_flags | VM_DONTCOPY) & ~VM_MAYWRITE;  
-    if (proc->buffer) {  
-        ret = -EBUSY;  
-        failure_string = "already mapped";  
-        goto err_already_mapped;  
-    }  
-    area = get_vm_area(vma->vm_end - vma->vm_start, VM_IOREMAP);  
-    if (area == NULL) {  
-        ret = -ENOMEM;  
-        failure_string = "get_vm_area";  
-        goto err_get_vm_area_failed;  
-    }  
-    proc->buffer = area->addr;  
-    proc->user_buffer_offset = vma->vm_start - (uintptr_t)proc->buffer;  
-#ifdef CONFIG_CPU_CACHE_VIPT  
-    if (cache_is_vipt_aliasing()) {  
-        while (CACHE_COLOUR((vma->vm_start ^ (uint32_t)proc->buffer))) {  
-            printk(KERN_INFO "binder_mmap: %d %lx-%lx maps %p bad alignment\n", proc->pid, vma->vm_start, vma->vm_end, proc->buffer);  
-            vma->vm_start += PAGE_SIZE;  
-        }  
-    }  
-#endif  
-    proc->pages = kzalloc(sizeof(proc->pages[0]) * ((vma->vm_end - vma->vm_start) / PAGE_SIZE), GFP_KERNEL);  
-    if (proc->pages == NULL) {  
-        ret = -ENOMEM;  
-        failure_string = "alloc page array";  
-        goto err_alloc_pages_failed;  
-    }  
-    proc->buffer_size = vma->vm_end - vma->vm_start;  
-    vma->vm_ops = &binder_vm_ops;  
-    vma->vm_private_data = proc;  
-    if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {  
-        ret = -ENOMEM;  
-        failure_string = "alloc small buf";  
-        goto err_alloc_small_buf_failed;  
-    }  
-    buffer = proc->buffer;  
-    INIT_LIST_HEAD(&proc->buffers);  
-    list_add(&buffer->entry, &proc->buffers);  
-    buffer->free = 1;  
-    binder_insert_free_buffer(proc, buffer);  
-    proc->free_async_space = proc->buffer_size / 2;  
-    barrier();  
-    proc->files = get_files_struct(current);  
-    proc->vma = vma;  
-    /*printk(KERN_INFO "binder_mmap: %d %lx-%lx maps %p\n", proc->pid, vma->vm_start, vma->vm_end, proc->buffer);*/  
-    return 0;  
-err_alloc_small_buf_failed:  
-    kfree(proc->pages);  
-    proc->pages = NULL;  
-err_alloc_pages_failed:  
-    vfree(proc->buffer);  
-    proc->buffer = NULL;  
-err_get_vm_area_failed:  
-err_already_mapped:  
-err_bad_arg:  
-    printk(KERN_ERR "binder_mmap: %d %lx-%lx %s failed %d\n", proc->pid, vma->vm_start, vma->vm_end, failure_string, ret);  
-    return ret;  
-} 
+static int binder_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    int ret;
+    struct vm_struct *area;
+    struct binder_proc *proc = filp->private_data;
+    const char *failure_string;
+    struct binder_buffer *buffer;
+    if ((vma->vm_end - vma->vm_start) > SZ_4M)
+        vma->vm_end = vma->vm_start + SZ_4M;
+    if (binder_debug_mask & BINDER_DEBUG_OPEN_CLOSE)
+        printk(KERN_INFO
+            "binder_mmap: %d %lx-%lx (%ld K) vma %lx pagep %lx\n",
+            proc->pid, vma->vm_start, vma->vm_end,
+            (vma->vm_end - vma->vm_start) / SZ_1K, vma->vm_flags,
+            (unsigned long)pgprot_val(vma->vm_page_prot));
+    if (vma->vm_flags & FORBIDDEN_MMAP_FLAGS) {
+        ret = -EPERM;
+        failure_string = "bad vm_flags";
+        goto err_bad_arg;
+    }
+    vma->vm_flags = (vma->vm_flags | VM_DONTCOPY) & ~VM_MAYWRITE;
+    if (proc->buffer) {
+        ret = -EBUSY;
+        failure_string = "already mapped";
+        goto err_already_mapped;
+    }
+    area = get_vm_area(vma->vm_end - vma->vm_start, VM_IOREMAP);
+    if (area == NULL) {
+        ret = -ENOMEM;
+        failure_string = "get_vm_area";
+        goto err_get_vm_area_failed;
+    }
+    proc->buffer = area->addr;
+    proc->user_buffer_offset = vma->vm_start - (uintptr_t)proc->buffer;
+#ifdef CONFIG_CPU_CACHE_VIPT
+    if (cache_is_vipt_aliasing()) {
+        while (CACHE_COLOUR((vma->vm_start ^ (uint32_t)proc->buffer))) {
+            printk(KERN_INFO "binder_mmap: %d %lx-%lx maps %p bad alignment\n", proc->pid, vma->vm_start, vma->vm_end, proc->buffer);
+            vma->vm_start += PAGE_SIZE;
+        }
+    }
+#endif
+    proc->pages = kzalloc(sizeof(proc->pages[0]) * ((vma->vm_end - vma->vm_start) / PAGE_SIZE), GFP_KERNEL);
+    if (proc->pages == NULL) {
+        ret = -ENOMEM;
+        failure_string = "alloc page array";
+        goto err_alloc_pages_failed;
+    }
+    proc->buffer_size = vma->vm_end - vma->vm_start;
+    vma->vm_ops = &binder_vm_ops;
+    vma->vm_private_data = proc;
+    if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {
+        ret = -ENOMEM;
+        failure_string = "alloc small buf";
+        goto err_alloc_small_buf_failed;
+    }
+    buffer = proc->buffer;
+    INIT_LIST_HEAD(&proc->buffers);
+    list_add(&buffer->entry, &proc->buffers);
+    buffer->free = 1;
+    binder_insert_free_buffer(proc, buffer);
+    proc->free_async_space = proc->buffer_size / 2;
+    barrier();
+    proc->files = get_files_struct(current);
+    proc->vma = vma;
+    /*printk(KERN_INFO "binder_mmap: %d %lx-%lx maps %p\n", proc->pid, vma->vm_start, vma->vm_end, proc->buffer);*/
+    return 0;
+err_alloc_small_buf_failed:
+    kfree(proc->pages);
+    proc->pages = NULL;
+err_alloc_pages_failed:
+    vfree(proc->buffer);
+    proc->buffer = NULL;
+err_get_vm_area_failed:
+err_already_mapped:
+err_bad_arg:
+    printk(KERN_ERR "binder_mmap: %d %lx-%lx %s failed %d\n", proc->pid, vma->vm_start, vma->vm_end, failure_string, ret);
+    return ret;
+}
 ```
 函数首先通过filp->private_data得到在打开设备文件/dev/binder时创建的struct binder_proc结构。内存映射信息放在vma参数中，注意，这里的vma的数据类型是struct vm_area_struct，它表示的是一块连续的虚拟地址空间区域，在函数变量声明的地方，我们还看到有一个类似的结构体struct vm_struct，这个数据结构也是表示一块连续的虚拟地址空间区域，那么，这两者的区别是什么呢？在Linux中，struct vm_area_struct表示的虚拟地址是给进程使用的，而struct vm_struct表示的虚拟地址是给内核使用的，它们对应的物理页面都可以是不连续的。
 这里为什么会同时使用进程虚拟地址空间和内核虚拟地址空间来映射同一个物理页面呢？这就是Binder进程间通信机制的精髓所在了，同一个物理页面，一方映射到进程虚拟地址空间，一方面映射到内核虚拟地址空间，这样，进程和内核之间就可以减少一次内存拷贝了，提到了进程间通信效率。举个例子如，Client要将一块内存数据传递给Server，一般的做法是，Client将这块数据从它的进程空间拷贝到内核空间中，然后内核再将这个数据从内核空间拷贝到Server的进程空间，这样，Server就可以访问这个数据了。但是在这种方法中，执行了两次内存拷贝操作，而采用我们上面提到的方法，只需要把Client进程空间的数据拷贝一次到内核空间，然后Server与内核共享这个数据就可以了，整个过程只需要执行一次内存拷贝，提高了效率。
  再解释一下Binder驱动程序管理这个内存映射地址空间的方法，即是如何管理buffer ~ (buffer + buffer_size)这段地址空间的，这个地址空间被划分为一段一段来管理，每一段是结构体struct binder_buffer来描述：
 ```cpp
-struct binder_buffer {  
+struct binder_buffer {
 /*成员变量entry用于按从低址到高地址连入到struct binder_proc中的buffers表示的链表中去*/
-    struct list_head entry; /* free and allocated entries by addesss */  
+    struct list_head entry; /* free and allocated entries by addesss */
 /*空闲的binder_buffer通过成员变量rb_node连入到struct binder_proc中的free_buffers表示的红黑树中去*/
-	struct rb_node rb_node; /* free entry by size or allocated entry */  
-                /* by address */  
+	struct rb_node rb_node; /* free entry by size or allocated entry */
+                /* by address */
 /*每一个binder_buffer又分为正在使用的和空闲的，通过free成员变量来区分*/
-    unsigned free : 1;  
-    unsigned allow_user_free : 1;  
-    unsigned async_transaction : 1;  
-    unsigned debug_id : 29;  
-    struct binder_transaction *transaction;  
-    struct binder_node *target_node;  
-    size_t data_size;  
-    size_t offsets_size;  
-    uint8_t data[0];  
+    unsigned free : 1;
+    unsigned allow_user_free : 1;
+    unsigned async_transaction : 1;
+    unsigned debug_id : 29;
+    struct binder_transaction *transaction;
+    struct binder_node *target_node;
+    size_t data_size;
+    size_t offsets_size;
+    uint8_t data[0];
 };
 ```
 回到binder_mmap这个函数,首先是对参数作一些健康体检（sanity check），例如，要映射的内存大小不能超过SIZE_4M，即4M，回到service_manager.c中的main 函数，这里传进来的值是128 * 1024个字节，即128K，这个检查没有问题。通过健康体检后，调用get_vm_area函数获得一个空闲的vm_struct区间，并初始化proc结构体的buffer、user_buffer_offset、pages和buffer_size和成员变量，接着调用binder_update_page_range来为虚拟地址空间proc->buffer ~ proc->buffer + PAGE_SIZE分配一个空闲的物理页面，同时这段地址空间使用一个binder_buffer来描述，分别插入到proc->buffers链表和proc->free_buffers红黑树中去，最后，还初始化了proc结构体的free_async_space、files和vma三个成员变量。
 继续进入到binder_update_page_range函数中去看一下Binder驱动程序是如何实现把一个物理页面同时映射到内核空间和进程空间去的：
 ```cpp
-static int binder_update_page_range(struct binder_proc *proc, int allocate,  
-    void *start, void *end, struct vm_area_struct *vma)  
-{  
-    void *page_addr;  
-    unsigned long user_page_addr;  
-    struct vm_struct tmp_area;  
-    struct page **page;  
-    struct mm_struct *mm;  
-    if (binder_debug_mask & BINDER_DEBUG_BUFFER_ALLOC)  
-        printk(KERN_INFO "binder: %d: %s pages %p-%p\n",  
-               proc->pid, allocate ? "allocate" : "free", start, end);  
-    if (end <= start)  
-        return 0;  
-    if (vma)  
-        mm = NULL;  
-    else  
-        mm = get_task_mm(proc->tsk);  
-    if (mm) {  
-        down_write(&mm->mmap_sem);  
-        vma = proc->vma;  
-    }  
-    if (allocate == 0)  
-        goto free_range;  
-    if (vma == NULL) {  
-        printk(KERN_ERR "binder: %d: binder_alloc_buf failed to "  
-               "map pages in userspace, no vma\n", proc->pid);  
-        goto err_no_vma;  
-    }  
-    for (page_addr = start; page_addr < end; page_addr += PAGE_SIZE) {  
-        int ret;  
-        struct page **page_array_ptr;  
-        page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];  
-        BUG_ON(*page);  
+static int binder_update_page_range(struct binder_proc *proc, int allocate,
+    void *start, void *end, struct vm_area_struct *vma)
+{
+    void *page_addr;
+    unsigned long user_page_addr;
+    struct vm_struct tmp_area;
+    struct page **page;
+    struct mm_struct *mm;
+    if (binder_debug_mask & BINDER_DEBUG_BUFFER_ALLOC)
+        printk(KERN_INFO "binder: %d: %s pages %p-%p\n",
+               proc->pid, allocate ? "allocate" : "free", start, end);
+    if (end <= start)
+        return 0;
+    if (vma)
+        mm = NULL;
+    else
+        mm = get_task_mm(proc->tsk);
+    if (mm) {
+        down_write(&mm->mmap_sem);
+        vma = proc->vma;
+    }
+    if (allocate == 0)
+        goto free_range;
+    if (vma == NULL) {
+        printk(KERN_ERR "binder: %d: binder_alloc_buf failed to "
+               "map pages in userspace, no vma\n", proc->pid);
+        goto err_no_vma;
+    }
+    for (page_addr = start; page_addr < end; page_addr += PAGE_SIZE) {
+        int ret;
+        struct page **page_array_ptr;
+        page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];
+        BUG_ON(*page);
 /*首先是调用alloc_page来分配一个物理页面，这个函数返回一个struct page物理页面描述符，根据这个描述的内容初始化好struct vm_struct tmp_area结构体，然后通过map_vm_area将这个物理页面插入到tmp_area描述的内核空间去，接着通过page_addr + proc->user_buffer_offset获得进程虚拟空间地址，并通过vm_insert_page函数将这个物理页面插入到进程地址空间去，参数vma代表了要插入的进程的地址空间。*/
-        *page = alloc_page(GFP_KERNEL | __GFP_ZERO);  
-        if (*page == NULL) {  
-            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "  
-                   "for page at %p\n", proc->pid, page_addr);  
-            goto err_alloc_page_failed;  
-        }  
-        tmp_area.addr = page_addr;  
-        tmp_area.size = PAGE_SIZE + PAGE_SIZE /* guard page? */;  
-        page_array_ptr = page;  
-        ret = map_vm_area(&tmp_area, PAGE_KERNEL, &page_array_ptr);  
-        if (ret) {  
-            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "  
-                   "to map page at %p in kernel\n",  
-                   proc->pid, page_addr);  
-            goto err_map_kernel_failed;  
-        }  
-        user_page_addr =  
-            (uintptr_t)page_addr + proc->user_buffer_offset;  
-        ret = vm_insert_page(vma, user_page_addr, page[0]);  
-        if (ret) {  
-            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "  
-                   "to map page at %lx in userspace\n",  
-                   proc->pid, user_page_addr);  
-            goto err_vm_insert_page_failed;  
-        }  
-        /* vm_insert_page does not seem to increment the refcount */  
-    }  
-    if (mm) {  
-        up_write(&mm->mmap_sem);  
-        mmput(mm);  
-    }  
-    return 0;  
-free_range:  
-    for (page_addr = end - PAGE_SIZE; page_addr >= start;  
-         page_addr -= PAGE_SIZE) {  
-        page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];  
-        if (vma)  
-            zap_page_range(vma, (uintptr_t)page_addr +  
-                proc->user_buffer_offset, PAGE_SIZE, NULL);  
-err_vm_insert_page_failed:  
-        unmap_kernel_range((unsigned long)page_addr, PAGE_SIZE);  
-err_map_kernel_failed:  
-        __free_page(*page);  
-        *page = NULL;  
-err_alloc_page_failed:  
-        ;  
-    }  
-err_no_vma:  
-    if (mm) {  
-        up_write(&mm->mmap_sem);  
-        mmput(mm);  
-    }  
-    return -ENOMEM;  
+        *page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+        if (*page == NULL) {
+            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
+                   "for page at %p\n", proc->pid, page_addr);
+            goto err_alloc_page_failed;
+        }
+        tmp_area.addr = page_addr;
+        tmp_area.size = PAGE_SIZE + PAGE_SIZE /* guard page? */;
+        page_array_ptr = page;
+        ret = map_vm_area(&tmp_area, PAGE_KERNEL, &page_array_ptr);
+        if (ret) {
+            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
+                   "to map page at %p in kernel\n",
+                   proc->pid, page_addr);
+            goto err_map_kernel_failed;
+        }
+        user_page_addr =
+            (uintptr_t)page_addr + proc->user_buffer_offset;
+        ret = vm_insert_page(vma, user_page_addr, page[0]);
+        if (ret) {
+            printk(KERN_ERR "binder: %d: binder_alloc_buf failed "
+                   "to map page at %lx in userspace\n",
+                   proc->pid, user_page_addr);
+            goto err_vm_insert_page_failed;
+        }
+        /* vm_insert_page does not seem to increment the refcount */
+    }
+    if (mm) {
+        up_write(&mm->mmap_sem);
+        mmput(mm);
+    }
+    return 0;
+free_range:
+    for (page_addr = end - PAGE_SIZE; page_addr >= start;
+         page_addr -= PAGE_SIZE) {
+        page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];
+        if (vma)
+            zap_page_range(vma, (uintptr_t)page_addr +
+                proc->user_buffer_offset, PAGE_SIZE, NULL);
+err_vm_insert_page_failed:
+        unmap_kernel_range((unsigned long)page_addr, PAGE_SIZE);
+err_map_kernel_failed:
+        __free_page(*page);
+        *page = NULL;
+err_alloc_page_failed:
+        ;
+    }
+err_no_vma:
+    if (mm) {
+        up_write(&mm->mmap_sem);
+        mmput(mm);
+    }
+    return -ENOMEM;
 }
 ```
 4. 通知Binder驱动程序自己是Binder机制的上下文管理者
 binder_become_context_manager
 ```cpp
-    int binder_become_context_manager(struct binder_state *bs)  
-    {  
-        return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);  
-    }  
+    int binder_become_context_manager(struct binder_state *bs)
+    {
+        return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);
+    }
 ```
 进入到Binder驱动程序的binder_ioctl函数
 ```cpp
 /* binder_context_mgr_node用来表示Service Manager实体*/
-static struct binder_node *binder_context_mgr_node;  
+static struct binder_node *binder_context_mgr_node;
 /*binder_context_mgr_uid表示Service Manager守护进程的uid*/
-static uid_t binder_context_mgr_uid = -1; 
-static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)  
-{  
-    int ret;  
+static uid_t binder_context_mgr_uid = -1;
+static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int ret;
 /*首先是通过filp->private_data获得proc变量*/
-    struct binder_proc *proc = filp->private_data;  
-    struct binder_thread *thread;  
-    unsigned int size = _IOC_SIZE(cmd);  
-    void __user *ubuf = (void __user *)arg;  
-  
-    /*printk(KERN_INFO "binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/  
-  
-    ret = wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);  
-    if (ret)  
-        return ret;  
-  
-    mutex_lock(&binder_lock);  
+    struct binder_proc *proc = filp->private_data;
+    struct binder_thread *thread;
+    unsigned int size = _IOC_SIZE(cmd);
+    void __user *ubuf = (void __user *)arg;
+
+    /*printk(KERN_INFO "binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/
+
+    ret = wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);
+    if (ret)
+        return ret;
+
+    mutex_lock(&binder_lock);
 /*接着通过binder_get_thread函数获得线程信息*/
-    thread = binder_get_thread(proc);  
-    if (thread == NULL) {  
-        ret = -ENOMEM;  
-        goto err;  
-    }  
-  
-    switch (cmd) {  
-        ......  
-    case BINDER_SET_CONTEXT_MGR:  
-        if (binder_context_mgr_node != NULL) {  
-            printk(KERN_ERR "binder: BINDER_SET_CONTEXT_MGR already set\n");  
-            ret = -EBUSY;  
-            goto err;  
-        }  
-        if (binder_context_mgr_uid != -1) {  
-            if (binder_context_mgr_uid != current->cred->euid) {  
-                printk(KERN_ERR "binder: BINDER_SET_"  
-                    "CONTEXT_MGR bad uid %d != %d\n",  
-                    current->cred->euid,  
-                    binder_context_mgr_uid);  
-                ret = -EPERM;  
-                goto err;  
-            }  
-        } else  
+    thread = binder_get_thread(proc);
+    if (thread == NULL) {
+        ret = -ENOMEM;
+        goto err;
+    }
+
+    switch (cmd) {
+        ......
+    case BINDER_SET_CONTEXT_MGR:
+        if (binder_context_mgr_node != NULL) {
+            printk(KERN_ERR "binder: BINDER_SET_CONTEXT_MGR already set\n");
+            ret = -EBUSY;
+            goto err;
+        }
+        if (binder_context_mgr_uid != -1) {
+            if (binder_context_mgr_uid != current->cred->euid) {
+                printk(KERN_ERR "binder: BINDER_SET_"
+                    "CONTEXT_MGR bad uid %d != %d\n",
+                    current->cred->euid,
+                    binder_context_mgr_uid);
+                ret = -EPERM;
+                goto err;
+            }
+        } else
 /*由于当前线程是第一次进到这里，所以binder_context_mgr_node为NULL，binder_context_mgr_uid为-1，于是初始化binder_context_mgr_uid为current->cred->euid，这样，当前线程就成为Binder机制的守护进程了，并且通过binder_new_node为Service Manager创建Binder实体：*/
-            binder_context_mgr_uid = current->cred->euid;  
-        binder_context_mgr_node = binder_new_node(proc, NULL, NULL);  
-        if (binder_context_mgr_node == NULL) {  
-            ret = -ENOMEM;  
-            goto err;  
-        }  
-        binder_context_mgr_node->local_weak_refs++;  
-        binder_context_mgr_node->local_strong_refs++;  
-        binder_context_mgr_node->has_strong_ref = 1;  
-        binder_context_mgr_node->has_weak_ref = 1;  
-        break;  
-        ......  
-    default:  
-        ret = -EINVAL;  
-        goto err;  
-    }  
-    ret = 0;  
-err:  
+            binder_context_mgr_uid = current->cred->euid;
+        binder_context_mgr_node = binder_new_node(proc, NULL, NULL);
+        if (binder_context_mgr_node == NULL) {
+            ret = -ENOMEM;
+            goto err;
+        }
+        binder_context_mgr_node->local_weak_refs++;
+        binder_context_mgr_node->local_strong_refs++;
+        binder_context_mgr_node->has_strong_ref = 1;
+        binder_context_mgr_node->has_weak_ref = 1;
+        break;
+        ......
+    default:
+        ret = -EINVAL;
+        goto err;
+    }
+    ret = 0;
+err:
 /*binder_ioctl函数返回之前，执行了下面语句,执行完毕后thread->looper = 0*/
-    if (thread)  
-        thread->looper &= ~BINDER_LOOPER_STATE_NEED_RETURN;  
-    mutex_unlock(&binder_lock);  
-    wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);  
-    if (ret && ret != -ERESTARTSYS)  
-        printk(KERN_INFO "binder: %d:%d ioctl %x %lx returned %d\n", proc->pid, current->pid, cmd, arg, ret);  
-    return ret;  
+    if (thread)
+        thread->looper &= ~BINDER_LOOPER_STATE_NEED_RETURN;
+    mutex_unlock(&binder_lock);
+    wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);
+    if (ret && ret != -ERESTARTSYS)
+        printk(KERN_INFO "binder: %d:%d ioctl %x %lx returned %d\n", proc->pid, current->pid, cmd, arg, ret);
+    return ret;
 }
 ```
 先来看binder_thread结构体定义
 ```cpp
-struct binder_thread {  
+struct binder_thread {
 /*proc表示这个线程所属的进程。*/
-    struct binder_proc *proc;  
+    struct binder_proc *proc;
 /*struct binder_proc有一个成员变量threads，它的类型是rb_root，它表示一查红黑树，把属于这个进程的所有线程都组织起来，struct binder_thread的成员变量rb_node就是用来链入这棵红黑树的节点了。*/
-    struct rb_node rb_node;  
-    int pid;  
+    struct rb_node rb_node;
+    int pid;
 /*looper成员变量表示线程的状态,可以取这些值
-    enum {  
-        BINDER_LOOPER_STATE_REGISTERED  = 0x01,  
-        BINDER_LOOPER_STATE_ENTERED     = 0x02,  
-        BINDER_LOOPER_STATE_EXITED      = 0x04,  
-        BINDER_LOOPER_STATE_INVALID     = 0x08,  
-        BINDER_LOOPER_STATE_WAITING     = 0x10,  
-        BINDER_LOOPER_STATE_NEED_RETURN = 0x20  
-    };  
+    enum {
+        BINDER_LOOPER_STATE_REGISTERED  = 0x01,
+        BINDER_LOOPER_STATE_ENTERED     = 0x02,
+        BINDER_LOOPER_STATE_EXITED      = 0x04,
+        BINDER_LOOPER_STATE_INVALID     = 0x08,
+        BINDER_LOOPER_STATE_WAITING     = 0x10,
+        BINDER_LOOPER_STATE_NEED_RETURN = 0x20
+    };
 */
-    int looper;  
+    int looper;
 /*transaction_stack表示线程正在处理的事务*/
-    struct binder_transaction *transaction_stack;  
+    struct binder_transaction *transaction_stack;
 /*todo表示发往该线程的数据列表*/
-    struct list_head todo;  
-    uint32_t return_error; /* Write failed, return error code in read buf */  
-    uint32_t return_error2; /* Write failed, return error code in read */  
-        /* buffer. Used when sending a reply to a dead process that */  
-        /* we are also waiting on */  
-    wait_queue_head_t wait;  
-    struct binder_stats stats;  
+    struct list_head todo;
+    uint32_t return_error; /* Write failed, return error code in read buf */
+    uint32_t return_error2; /* Write failed, return error code in read */
+        /* buffer. Used when sending a reply to a dead process that */
+        /* we are also waiting on */
+    wait_queue_head_t wait;
+    struct binder_stats stats;
 };
 ```
 再来看看struct binder_node，它表示一个binder实体：
 ```cpp
-    struct binder_node {  
-        int debug_id;  
-        struct binder_work work;  
+    struct binder_node {
+        int debug_id;
+        struct binder_work work;
 /* 如果这个Binder实体还在正常使用，则使用rb_node来连入proc->nodes所表示的红黑树的节点，这棵红黑树用来组织属于这个进程的所有Binder实体；如果这个Binder实体所属的进程已经销毁，而这个Binder实体又被其它进程所引用，则这个Binder实体通过dead_node进入到一个哈希表中去存放。*/
-        union {  
-            struct rb_node rb_node;  
-            struct hlist_node dead_node;  
-        };  
+        union {
+            struct rb_node rb_node;
+            struct hlist_node dead_node;
+        };
 /*proc成员变量就是表示这个Binder实例所属于进程了。*/
-        struct binder_proc *proc;  
+        struct binder_proc *proc;
 /*refs成员变量把所有引用了该Binder实体的Binder引用连接起来构成一个链表。internal_strong_refs、local_weak_refs和local_strong_refs表示这个Binder实体的引用计数。*/
-        struct hlist_head refs;  
-        int internal_strong_refs;  
-        int local_weak_refs;  
-        int local_strong_refs;  
+        struct hlist_head refs;
+        int internal_strong_refs;
+        int local_weak_refs;
+        int local_strong_refs;
 /*ptr和cookie成员变量分别表示这个Binder实体在用户空间的地址以及附加数据。*/
-        void __user *ptr;  
-        void __user *cookie;  
-        unsigned has_strong_ref : 1;  
-        unsigned pending_strong_ref : 1;  
-        unsigned has_weak_ref : 1;  
-        unsigned pending_weak_ref : 1;  
-        unsigned has_async_transaction : 1;  
-        unsigned accept_fds : 1;  
-        int min_priority : 8;  
-        struct list_head async_todo;  
-    };  
+        void __user *ptr;
+        void __user *cookie;
+        unsigned has_strong_ref : 1;
+        unsigned pending_strong_ref : 1;
+        unsigned has_weak_ref : 1;
+        unsigned pending_weak_ref : 1;
+        unsigned has_async_transaction : 1;
+        unsigned accept_fds : 1;
+        int min_priority : 8;
+        struct list_head async_todo;
+    };
 ```
 回到binder_ioctrl函数，见注释。
 binder_get_thread函数
 ```cpp
-static struct binder_thread *binder_get_thread(struct binder_proc *proc)  
-{  
-    struct binder_thread *thread = NULL;  
-    struct rb_node *parent = NULL;  
-    struct rb_node **p = &proc->threads.rb_node;  
-    while (*p) {  
-        parent = *p;  
-        thread = rb_entry(parent, struct binder_thread, rb_node);  
-        if (current->pid < thread->pid)  
-            p = &(*p)->rb_left;  
-        else if (current->pid > thread->pid)  
-            p = &(*p)->rb_right;  
-        else  
-            break;  
-    }  
-    if (*p == NULL) {  
-        thread = kzalloc(sizeof(*thread), GFP_KERNEL);  
-        if (thread == NULL)  
-            return NULL;  
-        binder_stats.obj_created[BINDER_STAT_THREAD]++;  
-        thread->proc = proc;  
-        thread->pid = current->pid;  
-        init_waitqueue_head(&thread->wait);  
-        INIT_LIST_HEAD(&thread->todo);  
-        rb_link_node(&thread->rb_node, parent, p);  
-        rb_insert_color(&thread->rb_node, &proc->threads);  
+static struct binder_thread *binder_get_thread(struct binder_proc *proc)
+{
+    struct binder_thread *thread = NULL;
+    struct rb_node *parent = NULL;
+    struct rb_node **p = &proc->threads.rb_node;
+    while (*p) {
+        parent = *p;
+        thread = rb_entry(parent, struct binder_thread, rb_node);
+        if (current->pid < thread->pid)
+            p = &(*p)->rb_left;
+        else if (current->pid > thread->pid)
+            p = &(*p)->rb_right;
+        else
+            break;
+    }
+    if (*p == NULL) {
+        thread = kzalloc(sizeof(*thread), GFP_KERNEL);
+        if (thread == NULL)
+            return NULL;
+        binder_stats.obj_created[BINDER_STAT_THREAD]++;
+        thread->proc = proc;
+        thread->pid = current->pid;
+        init_waitqueue_head(&thread->wait);
+        INIT_LIST_HEAD(&thread->todo);
+        rb_link_node(&thread->rb_node, parent, p);
+        rb_insert_color(&thread->rb_node, &proc->threads);
 /*注意，这里的thread->looper = BINDER_LOOPER_STATE_NEED_RETURN。*/
-        thread->looper |= BINDER_LOOPER_STATE_NEED_RETURN;  
-        thread->return_error = BR_OK;  
-        thread->return_error2 = BR_OK;  
-    }  
-    return thread;  
+        thread->looper |= BINDER_LOOPER_STATE_NEED_RETURN;
+        thread->return_error = BR_OK;
+        thread->return_error2 = BR_OK;
+    }
+    return thread;
 }
 ```
 通常的红黑树左右查找，没有找到创建并插入。
 回到binder_ioctl函数，看注释。binder_ioctrl返回，回到service_manager.c的main函数，执行binder_loop函数。
 ```cpp
-void binder_loop(struct binder_state *bs, binder_handler func)  
-{  
-    int res;  
-    struct binder_write_read bwr;  
-    unsigned readbuf[32];  
-    bwr.write_size = 0;  
-    bwr.write_consumed = 0;  
-    bwr.write_buffer = 0;  
-    readbuf[0] = BC_ENTER_LOOPER;  
+void binder_loop(struct binder_state *bs, binder_handler func)
+{
+    int res;
+    struct binder_write_read bwr;
+    unsigned readbuf[32];
+    bwr.write_size = 0;
+    bwr.write_consumed = 0;
+    bwr.write_buffer = 0;
+    readbuf[0] = BC_ENTER_LOOPER;
 /*首先是通过binder_write函数执行BC_ENTER_LOOPER命令告诉Binder驱动程序， Service Manager要进入循环了。*/
-    binder_write(bs, readbuf, sizeof(unsigned));  
-    for (;;) {  
-        bwr.read_size = sizeof(readbuf);  
-        bwr.read_consumed = 0;  
-        bwr.read_buffer = (unsigned) readbuf;  
-        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);  
-        if (res < 0) {  
-            LOGE("binder_loop: ioctl failed (%s)\n", strerror(errno));  
-            break;  
-        }  
-        res = binder_parse(bs, 0, readbuf, bwr.read_consumed, func);  
-        if (res == 0) {  
-            LOGE("binder_loop: unexpected reply?!\n");  
-            break;  
-        }  
-        if (res < 0) {  
-            LOGE("binder_loop: io error %d %s\n", res, strerror(errno));  
-            break;  
-        }  
-    }  
+    binder_write(bs, readbuf, sizeof(unsigned));
+    for (;;) {
+        bwr.read_size = sizeof(readbuf);
+        bwr.read_consumed = 0;
+        bwr.read_buffer = (unsigned) readbuf;
+        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);
+        if (res < 0) {
+            LOGE("binder_loop: ioctl failed (%s)\n", strerror(errno));
+            break;
+        }
+        res = binder_parse(bs, 0, readbuf, bwr.read_consumed, func);
+        if (res == 0) {
+            LOGE("binder_loop: unexpected reply?!\n");
+            break;
+        }
+        if (res < 0) {
+            LOGE("binder_loop: io error %d %s\n", res, strerror(errno));
+            break;
+        }
+    }
 }
 ```
 ```cpp
 #define BINDER_WRITE_READ           _IOWR('b', 1, struct binder_write_read)
 ```
 ```cpp
-struct binder_write_read {  
+struct binder_write_read {
 /*write_bufffer和read_buffer所指向的数据结构还指定了具体要执行的操作，write_bufffer和read_buffer所指向的结构体是struct binder_transaction_data*/
-    signed long write_size; /* bytes to write */  
-    signed long write_consumed; /* bytes consumed by driver */  
-    unsigned long   write_buffer;  
-    signed long read_size;  /* bytes to read */  
-    signed long read_consumed;  /* bytes consumed by driver */  
-    unsigned long   read_buffer;  
+    signed long write_size; /* bytes to write */
+    signed long write_consumed; /* bytes consumed by driver */
+    unsigned long   write_buffer;
+    signed long read_size;  /* bytes to read */
+    signed long read_consumed;  /* bytes consumed by driver */
+    unsigned long   read_buffer;
 };
 ```
 ```cpp
-struct binder_transaction_data {  
-    /* The first two are only used for bcTRANSACTION and brTRANSACTION, 
-     * identifying the target and contents of the transaction. 
-     */  
+struct binder_transaction_data {
+    /* The first two are only used for bcTRANSACTION and brTRANSACTION,
+     * identifying the target and contents of the transaction.
+     */
 /*联合体target，当这个BINDER_WRITE_READ命令的目标对象是本地Binder实体时，就使用ptr来表示这个对象在本进程中的地址，否则就使用handle来表示这个Binder实体的引用。*/
-    union {  
-        size_t  handle; /* target descriptor of command transaction */  
-        void    *ptr;   /* target descriptor of return transaction */  
-    } target;  
+    union {
+        size_t  handle; /* target descriptor of command transaction */
+        void    *ptr;   /* target descriptor of return transaction */
+    } target;
 /*只有目标对象是Binder实体时，cookie成员变量才有意义，表示一些附加数据，由Binder实体来解释这个个附加数据。*/
-    void        *cookie;    /* target object cookie */  
+    void        *cookie;    /* target object cookie */
 /*code表示要对目标对象请求的命令代码，有很多请求代码，这里就不列举了，在这个场景中，就是BC_ENTER_LOOPER了，用来告诉Binder驱动程序， Service Manager要进入循环了。*/
-    unsigned int    code;       /* transaction command */  
-    /* General information about the transaction. */  
-    unsigned int    flags;  
-    pid_t       sender_pid;  
-    uid_t       sender_euid;  
-    size_t      data_size;  /* number of bytes of data */  
-    size_t      offsets_size;   /* number of bytes of offsets */  
-    /* If this transaction is inline, the data immediately 
-     * follows here; otherwise, it ends with a pointer to 
-     * the data buffer. 
-     */  
-    union {  
-        struct {  
-            /* transaction data */  
+    unsigned int    code;       /* transaction command */
+    /* General information about the transaction. */
+    unsigned int    flags;
+    pid_t       sender_pid;
+    uid_t       sender_euid;
+    size_t      data_size;  /* number of bytes of data */
+    size_t      offsets_size;   /* number of bytes of offsets */
+    /* If this transaction is inline, the data immediately
+     * follows here; otherwise, it ends with a pointer to
+     * the data buffer.
+     */
+    union {
+        struct {
+            /* transaction data */
 /*data.buffer所表示的缓冲区数据分为两类，一类是普通数据，Binder驱动程序不关心，一类是Binder实体或者Binder引用，这需要Binder驱动程序介入处理。*/
-            const void  *buffer;  
-            /* offsets from buffer to flat_binder_object structs */  
-            const void  *offsets;  
-        } ptr;  
-        uint8_t buf[8];  
-    } data;  
+            const void  *buffer;
+            /* offsets from buffer to flat_binder_object structs */
+            const void  *offsets;
+        } ptr;
+        uint8_t buf[8];
+    } data;
 };
 ```
 ```cpp
-/* 
- * This is the flattened representation of a Binder object for transfer 
- * between processes.  The 'offsets' supplied as part of a binder transaction 
- * contains offsets into the data where these structures occur.  The Binder 
- * driver takes care of re-writing the structure type and data as it moves 
- * between processes. 
- */  
-struct flat_binder_object {  
-    /* 8 bytes for large_flat_header. */  
-    unsigned long       type;  
-    unsigned long       flags;  
-    /* 8 bytes of data. */  
-    union {  
-        void        *binder;    /* local object */  
-        signed long handle;     /* remote object */  
-    };  
-    /* extra data associated with local object */  
-    void            *cookie;  
+/*
+ * This is the flattened representation of a Binder object for transfer
+ * between processes.  The 'offsets' supplied as part of a binder transaction
+ * contains offsets into the data where these structures occur.  The Binder
+ * driver takes care of re-writing the structure type and data as it moves
+ * between processes.
+ */
+struct flat_binder_object {
+    /* 8 bytes for large_flat_header. */
+    unsigned long       type;
+    unsigned long       flags;
+    /* 8 bytes of data. */
+    union {
+        void        *binder;    /* local object */
+        signed long handle;     /* remote object */
+    };
+    /* extra data associated with local object */
+    void            *cookie;
 };
 ```
 成员变量含义参看设计篇
 回到函数binder_loop函数，执行BC_ENTER_LOOPER
 ```cpp
-    readbuf[0] = BC_ENTER_LOOPER;  
+    readbuf[0] = BC_ENTER_LOOPER;
     binder_write(bs, readbuf, sizeof(unsigned));
 ```
 ```cpp
-int binder_write(struct binder_state *bs, void *data, unsigned len)  
-{  
-    struct binder_write_read bwr;  
-    int res;  
-    bwr.write_size = len;  
-    bwr.write_consumed = 0;  
-    bwr.write_buffer = (unsigned) data;  
-    bwr.read_size = 0;  
-    bwr.read_consumed = 0;  
-    bwr.read_buffer = 0;  
-    res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);  
-    if (res < 0) {  
-        fprintf(stderr,"binder_write: ioctl failed (%s)\n",  
-                strerror(errno));  
-    }  
-    return res;  
+int binder_write(struct binder_state *bs, void *data, unsigned len)
+{
+    struct binder_write_read bwr;
+    int res;
+    bwr.write_size = len;
+    bwr.write_consumed = 0;
+    bwr.write_buffer = (unsigned) data;
+    bwr.read_size = 0;
+    bwr.read_consumed = 0;
+    bwr.read_buffer = 0;
+    res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);
+    if (res < 0) {
+        fprintf(stderr,"binder_write: ioctl failed (%s)\n",
+                strerror(errno));
+    }
+    return res;
 }
 ```
 binder_write调用ioctrl，回到ioctrl函数，ioctrl中主要调用binder_thread_read.
 ```cpp
-int  
-binder_thread_write(struct binder_proc *proc, struct binder_thread *thread,  
-                    void __user *buffer, int size, signed long *consumed)  
-{  
-    uint32_t cmd;  
-    void __user *ptr = buffer + *consumed;  
-    void __user *end = buffer + size;  
-    while (ptr < end && thread->return_error == BR_OK) {  
-        if (get_user(cmd, (uint32_t __user *)ptr))  
-            return -EFAULT;  
-        ptr += sizeof(uint32_t);  
-        if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.bc)) {  
-            binder_stats.bc[_IOC_NR(cmd)]++;  
-            proc->stats.bc[_IOC_NR(cmd)]++;  
-            thread->stats.bc[_IOC_NR(cmd)]++;  
-        }  
-        switch (cmd) {  
-        ......  
-        case BC_ENTER_LOOPER:  
-            if (binder_debug_mask & BINDER_DEBUG_THREADS)  
-                printk(KERN_INFO "binder: %d:%d BC_ENTER_LOOPER\n",  
-                proc->pid, thread->pid);  
-            if (thread->looper & BINDER_LOOPER_STATE_REGISTERED) {  
-                thread->looper |= BINDER_LOOPER_STATE_INVALID;  
-                binder_user_error("binder: %d:%d ERROR:"  
-                    " BC_ENTER_LOOPER called after "  
-                    "BC_REGISTER_LOOPER\n",  
-                    proc->pid, thread->pid);  
-            }  
+int
+binder_thread_write(struct binder_proc *proc, struct binder_thread *thread,
+                    void __user *buffer, int size, signed long *consumed)
+{
+    uint32_t cmd;
+    void __user *ptr = buffer + *consumed;
+    void __user *end = buffer + size;
+    while (ptr < end && thread->return_error == BR_OK) {
+        if (get_user(cmd, (uint32_t __user *)ptr))
+            return -EFAULT;
+        ptr += sizeof(uint32_t);
+        if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.bc)) {
+            binder_stats.bc[_IOC_NR(cmd)]++;
+            proc->stats.bc[_IOC_NR(cmd)]++;
+            thread->stats.bc[_IOC_NR(cmd)]++;
+        }
+        switch (cmd) {
+        ......
+        case BC_ENTER_LOOPER:
+            if (binder_debug_mask & BINDER_DEBUG_THREADS)
+                printk(KERN_INFO "binder: %d:%d BC_ENTER_LOOPER\n",
+                proc->pid, thread->pid);
+            if (thread->looper & BINDER_LOOPER_STATE_REGISTERED) {
+                thread->looper |= BINDER_LOOPER_STATE_INVALID;
+                binder_user_error("binder: %d:%d ERROR:"
+                    " BC_ENTER_LOOPER called after "
+                    "BC_REGISTER_LOOPER\n",
+                    proc->pid, thread->pid);
+            }
 /*执行完BC_ENTER_LOOPER时，thread->looper值就变为BINDER_LOOPER_STATE_ENTERED了，表明当前线程进入循环状态了。*/
-            thread->looper |= BINDER_LOOPER_STATE_ENTERED;  
-            break;  
-        ......  
-        default:  
-            printk(KERN_ERR "binder: %d:%d unknown command %d\n", proc->pid, thread->pid, cmd);  
-            return -EINVAL;  
-        }  
-        *consumed = ptr - buffer;  
-    }  
-    return 0;  
+            thread->looper |= BINDER_LOOPER_STATE_ENTERED;
+            break;
+        ......
+        default:
+            printk(KERN_ERR "binder: %d:%d unknown command %d\n", proc->pid, thread->pid, cmd);
+            return -EINVAL;
+        }
+        *consumed = ptr - buffer;
+    }
+    return 0;
 }
 ```
 回到binder_loop函数，进入for循环，又是执行一个ioctl命令，注意，这里的bwr参数各个成员的值：
 此时bwr各参数值：
 ```cpp
-bwr.write_size = 0;  
-bwr.write_consumed = 0;  
-bwr.write_buffer = 0;  
-readbuf[0] = BC_ENTER_LOOPER;  
-bwr.read_size = sizeof(readbuf);  
-bwr.read_consumed = 0;  
+bwr.write_size = 0;
+bwr.write_consumed = 0;
+bwr.write_buffer = 0;
+readbuf[0] = BC_ENTER_LOOPER;
+bwr.read_size = sizeof(readbuf);
+bwr.read_consumed = 0;
 bwr.read_buffer = (unsigned) readbuf;
 ```
 进入binder_thread_read函数
 ```cpp
-static int  
-binder_thread_read(struct binder_proc *proc, struct binder_thread *thread,  
-                   void  __user *buffer, int size, signed long *consumed, int non_block)  
-{  
-    void __user *ptr = buffer + *consumed;  
-    void __user *end = buffer + size;  
-    int ret = 0;  
-    int wait_for_proc_work;  
-    if (*consumed == 0) {  
-        if (put_user(BR_NOOP, (uint32_t __user *)ptr))  
-            return -EFAULT;  
-        ptr += sizeof(uint32_t);  
-    }  
-retry:  
-    wait_for_proc_work = thread->transaction_stack == NULL && list_empty(&thread->todo);  
-    if (thread->return_error != BR_OK && ptr < end) {  
-        if (thread->return_error2 != BR_OK) {  
-            if (put_user(thread->return_error2, (uint32_t __user *)ptr))  
-                return -EFAULT;  
-            ptr += sizeof(uint32_t);  
-            if (ptr == end)  
-                goto done;  
-            thread->return_error2 = BR_OK;  
-        }  
-        if (put_user(thread->return_error, (uint32_t __user *)ptr))  
-            return -EFAULT;  
-        ptr += sizeof(uint32_t);  
-        thread->return_error = BR_OK;  
-        goto done;  
-    }  
-    thread->looper |= BINDER_LOOPER_STATE_WAITING;  
-    if (wait_for_proc_work)  
-        proc->ready_threads++;  
-    mutex_unlock(&binder_lock);  
-    if (wait_for_proc_work) {  
-        if (!(thread->looper & (BINDER_LOOPER_STATE_REGISTERED |  
-            BINDER_LOOPER_STATE_ENTERED))) {  
-                binder_user_error("binder: %d:%d ERROR: Thread waiting "  
-                    "for process work before calling BC_REGISTER_"  
-                    "LOOPER or BC_ENTER_LOOPER (state %x)\n",  
-                    proc->pid, thread->pid, thread->looper);  
-                wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);  
-        }  
-        binder_set_nice(proc->default_priority);  
-        if (non_block) {  
-            if (!binder_has_proc_work(proc, thread))  
-                ret = -EAGAIN;  
-        } else  
-            ret = wait_event_interruptible_exclusive(proc->wait, binder_has_proc_work(proc, thread));  
-    } else {  
-        if (non_block) {  
-            if (!binder_has_thread_work(thread))  
-                ret = -EAGAIN;  
-        } else  
-            ret = wait_event_interruptible(thread->wait, binder_has_thread_work(thread));  
-    }  
-        .......  
+static int
+binder_thread_read(struct binder_proc *proc, struct binder_thread *thread,
+                   void  __user *buffer, int size, signed long *consumed, int non_block)
+{
+    void __user *ptr = buffer + *consumed;
+    void __user *end = buffer + size;
+    int ret = 0;
+    int wait_for_proc_work;
+    if (*consumed == 0) {
+        if (put_user(BR_NOOP, (uint32_t __user *)ptr))
+            return -EFAULT;
+        ptr += sizeof(uint32_t);
+    }
+retry:
+    wait_for_proc_work = thread->transaction_stack == NULL && list_empty(&thread->todo);
+    if (thread->return_error != BR_OK && ptr < end) {
+        if (thread->return_error2 != BR_OK) {
+            if (put_user(thread->return_error2, (uint32_t __user *)ptr))
+                return -EFAULT;
+            ptr += sizeof(uint32_t);
+            if (ptr == end)
+                goto done;
+            thread->return_error2 = BR_OK;
+        }
+        if (put_user(thread->return_error, (uint32_t __user *)ptr))
+            return -EFAULT;
+        ptr += sizeof(uint32_t);
+        thread->return_error = BR_OK;
+        goto done;
+    }
+    thread->looper |= BINDER_LOOPER_STATE_WAITING;
+    if (wait_for_proc_work)
+        proc->ready_threads++;
+    mutex_unlock(&binder_lock);
+    if (wait_for_proc_work) {
+        if (!(thread->looper & (BINDER_LOOPER_STATE_REGISTERED |
+            BINDER_LOOPER_STATE_ENTERED))) {
+                binder_user_error("binder: %d:%d ERROR: Thread waiting "
+                    "for process work before calling BC_REGISTER_"
+                    "LOOPER or BC_ENTER_LOOPER (state %x)\n",
+                    proc->pid, thread->pid, thread->looper);
+                wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);
+        }
+        binder_set_nice(proc->default_priority);
+        if (non_block) {
+            if (!binder_has_proc_work(proc, thread))
+                ret = -EAGAIN;
+        } else
+            ret = wait_event_interruptible_exclusive(proc->wait, binder_has_proc_work(proc, thread));
+    } else {
+        if (non_block) {
+            if (!binder_has_thread_work(thread))
+                ret = -EAGAIN;
+        } else
+            ret = wait_event_interruptible(thread->wait, binder_has_thread_work(thread));
+    }
+        .......
 }
 ```
 传入的参数*consumed == 0，于是写入一个值BR_NOOP到参数ptr指向的缓冲区中去，即用户传进来的bwr.read_buffer缓冲区。这时候，thread->transaction_stack == NULL，并且thread->todo列表也是空的，这表示当前线程没有事务需要处理，于是wait_for_proc_work为true，表示要去查看proc是否有未处理的事务。当前thread->return_error == BR_OK，这是前面创建binder_thread时初始化设置的。于是继续往下执行，设置thread的状态为BINDER_LOOPER_STATE_WAITING，表示线程处于等待状态。调用binder_set_nice函数设置当前线程的优先级别为proc->default_priority，这是因为thread要去处理属于proc的事务，因此要将此thread的优先级别设置和proc一样。在这个场景中，proc也没有事务处理，即binder_has_proc_work(proc, thread)为false。如果文件打开模式为非阻塞模式，即non_block为true，那么函数就直接返回-EAGAIN，要求用户重新执行ioctl；**否则的话，就通过当前线程就通过wait_event_interruptible_exclusive函数进入休眠状态，等待请求到来再唤醒了。**
@@ -939,22 +939,22 @@ Service Manager是成为Android进程间通信（IPC）机制Binder守护进程�
 1. Service Manager在Binder机制中既充当守护进程的角色，同时它也充当着Server角色，然而它又与一般的Server不一样。**普通的Server来说，Client如果想要获得Server的远程接口，那么必须通过Service Manager远程接口提供的getService接口来获得**就是一个使用Binder机制来进行进程间通信的过程。而对于Service Manager这个Server来说，Client如果想要获得Service Manager远程接口，却不必通过进程间通信机制来获得，因为Service Manager远程接口是一个特殊的Binder引用，它的引用句柄一定是0。
 **Service Manager远程接口的函数是defaultServiceManager:**
 ```cpp
-sp<IServiceManager> defaultServiceManager()  
-{  
-    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;  
-    {  
-        AutoMutex _l(gDefaultServiceManagerLock);  
-        if (gDefaultServiceManager == NULL) {  
-            gDefaultServiceManager = interface_cast<IServiceManager>(  
-                ProcessState::self()->getContextObject(NULL));  
-        }  
-    }  
-    return gDefaultServiceManager;  
-} 
+sp<IServiceManager> defaultServiceManager()
+{
+    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;
+    {
+        AutoMutex _l(gDefaultServiceManagerLock);
+        if (gDefaultServiceManager == NULL) {
+            gDefaultServiceManager = interface_cast<IServiceManager>(
+                ProcessState::self()->getContextObject(NULL));
+        }
+    }
+    return gDefaultServiceManager;
+}
 ```
 gDefaultServiceManagerLock和gDefaultServiceManager是全局变量
 ```cpp
-Mutex gDefaultServiceManagerLock;  
+Mutex gDefaultServiceManagerLock;
 sp<IServiceManager> gDefaultServiceManager;
 ```
 使用单例模式，如果gDefaultServiceManager已经创建，则直接返回，否则通过interface_cast<IServiceManager>(ProcessState::self()->getContextObject(NULL))来创建一个，并保存在gDefaultServiceManager全局变量中。
@@ -964,7 +964,7 @@ BpServiceManager类继承了BpInterface<IServiceManager>类，BpInterface是一�
 IServiceManager类继承了IInterface类，而IInterface类和BpRefBase类又分别继承了RefBase类。在BpRefBase类中，有一个成员变量mRemote，它的类型是IBinder*，实现类为BpBinder，它表示一个Binder引用，引用句柄值保存在BpBinder类的mHandle成员变量中。BpBinder类通过IPCThreadState类来和Binder驱动程序并互，而IPCThreadState又通过它的成员变量mProcess来打开/dev/binder设备文件，mProcess成员变量的类型为ProcessState。ProcessState类打开设备/dev/binder之后，将打开文件描述符保存在mDriverFD成员变量中，以供后续使用
 回到defaultServiceManager函数中，最终结果为：
 ```cpp
-gDefaultServiceManager = new BpServiceManager(new BpBinder(0)); 
+gDefaultServiceManager = new BpServiceManager(new BpBinder(0));
 ```
  这样，Service Manager远程接口就创建完成了，它本质上是一个BpServiceManager，包含了一个句柄值为0的Binder引用。
 在Android系统的Binder机制中，Server和Client拿到这个Service Manager远程接口之后怎么用呢？
@@ -979,345 +979,345 @@ Server获得了Service Manager远程接口之后，就要把自己的Service添�
 2.MediaService服务启动流程分析
 - 启动MediaPlayerService
 ```cpp
-int main(int argc, char** argv)  
-{  
-    sp<ProcessState> proc(ProcessState::self());  
-    sp<IServiceManager> sm = defaultServiceManager();  
-    LOGI("ServiceManager: %p", sm.get());  
-    AudioFlinger::instantiate();  
-    MediaPlayerService::instantiate();  
-    CameraService::instantiate();  
-    AudioPolicyService::instantiate();  
-    ProcessState::self()->startThreadPool();  
-    IPCThreadState::self()->joinThreadPool();  
+int main(int argc, char** argv)
+{
+    sp<ProcessState> proc(ProcessState::self());
+    sp<IServiceManager> sm = defaultServiceManager();
+    LOGI("ServiceManager: %p", sm.get());
+    AudioFlinger::instantiate();
+    MediaPlayerService::instantiate();
+    CameraService::instantiate();
+    AudioPolicyService::instantiate();
+    ProcessState::self()->startThreadPool();
+    IPCThreadState::self()->joinThreadPool();
 }
 ```
 这句代码的作用是通过ProcessState::self()调用创建一个ProcessState实例。
 ```cpp
-sp<ProcessState> ProcessState::self()  
-{  
-    if (gProcess != NULL) return gProcess;  
-    AutoMutex _l(gProcessMutex);  
-    if (gProcess == NULL) gProcess = new ProcessState;  
-    return gProcess;  
+sp<ProcessState> ProcessState::self()
+{
+    if (gProcess != NULL) return gProcess;
+    AutoMutex _l(gProcessMutex);
+    if (gProcess == NULL) gProcess = new ProcessState;
+    return gProcess;
 }
 ```
 ProcessState的构造函数
 ```cpp
-ProcessState::ProcessState()  
-    : mDriverFD(open_driver())  
-    , mVMStart(MAP_FAILED)  
-    , mManagesContexts(false)  
-    , mBinderContextCheckFunc(NULL)  
-    , mBinderContextUserData(NULL)  
-    , mThreadPoolStarted(false)  
-    , mThreadPoolSeq(1)  
-{ 
+ProcessState::ProcessState()
+    : mDriverFD(open_driver())
+    , mVMStart(MAP_FAILED)
+    , mManagesContexts(false)
+    , mBinderContextCheckFunc(NULL)
+    , mBinderContextUserData(NULL)
+    , mThreadPoolStarted(false)
+    , mThreadPoolSeq(1)
+{
 	mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
 	....
 }
 ```
 构造函数有两个关键地方，一是通过open_driver函数打开Binder设备文件/dev/binder，并将打开设备文件描述符保存在成员变量mDriverFD中；二是通过mmap来把设备文件/dev/binder映射到内存中。 先看open_driver函数的实现
 ```cpp
-static int open_driver()  
-{  
-    if (gSingleProcess) {  
-        return -1;  
-    }  
-    int fd = open("/dev/binder", O_RDWR);  
-    if (fd >= 0) {  
-        fcntl(fd, F_SETFD, FD_CLOEXEC);  
-        int vers;  
-#if defined(HAVE_ANDROID_OS)  
-        status_t result = ioctl(fd, BINDER_VERSION, &vers);  
-#else  
-        status_t result = -1;  
-        errno = EPERM;  
-#endif  
-        if (result == -1) {  
-            LOGE("Binder ioctl to obtain version failed: %s", strerror(errno));  
-            close(fd);  
-            fd = -1;  
-        }  
-        if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {  
-            LOGE("Binder driver protocol does not match user space protocol!");  
-            close(fd);  
-            fd = -1;  
-        }  
-#if defined(HAVE_ANDROID_OS)  
-        size_t maxThreads = 15;  
-        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);  
-        if (result == -1) {  
-            LOGE("Binder ioctl to set max threads failed: %s", strerror(errno));  
-        }  
-#endif  
-    } else {  
-        LOGW("Opening '/dev/binder' failed: %s\n", strerror(errno));  
-    }  
-    return fd;  
+static int open_driver()
+{
+    if (gSingleProcess) {
+        return -1;
+    }
+    int fd = open("/dev/binder", O_RDWR);
+    if (fd >= 0) {
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
+        int vers;
+#if defined(HAVE_ANDROID_OS)
+        status_t result = ioctl(fd, BINDER_VERSION, &vers);
+#else
+        status_t result = -1;
+        errno = EPERM;
+#endif
+        if (result == -1) {
+            LOGE("Binder ioctl to obtain version failed: %s", strerror(errno));
+            close(fd);
+            fd = -1;
+        }
+        if (result != 0 || vers != BINDER_CURRENT_PROTOCOL_VERSION) {
+            LOGE("Binder driver protocol does not match user space protocol!");
+            close(fd);
+            fd = -1;
+        }
+#if defined(HAVE_ANDROID_OS)
+        size_t maxThreads = 15;
+        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);
+        if (result == -1) {
+            LOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
+        }
+#endif
+    } else {
+        LOGW("Opening '/dev/binder' failed: %s\n", strerror(errno));
+    }
+    return fd;
 }
 ```
 这个函数的作用主要是通过open文件操作函数来打开/dev/binder设备文件，然后再调用ioctl文件控制函数来分别执行BINDER_VERSION和BINDER_SET_MAX_THREADS两个命令来和Binder驱动程序进行交互，前者用于获得当前Binder驱动程序的版本号，后者用于通知Binder驱动程序，MediaPlayerService最多可同时启动15个线程来处理Client端的请求。 这里有一个重要的地方要注意的是，由于这里是打开设备文件/dev/binder之后，第一次进入到binder_ioctl函数，因此，这里调用binder_get_thread的时候，就会为当前线程创建一个struct binder_thread结构体变量来维护线程上下文信息。打开/dev/binder设备文件后，Binder驱动程序就为MediaPlayerService进程创建了一个struct binder_proc结构体实例来维护MediaPlayerService进程上下文相关信息。
-result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);  
+result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);
 这个函数调用最终进入到Binder驱动程序的binder_ioctl函数中，我们只关注BINDER_SET_MAX_THREADS相关的部分逻辑：
 ```cpp
-static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)  
-{  
-    int ret;  
-    struct binder_proc *proc = filp->private_data;  
-    struct binder_thread *thread;  
-    unsigned int size = _IOC_SIZE(cmd);  
-    void __user *ubuf = (void __user *)arg;  
-    /*printk(KERN_INFO "binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/  
-    ret = wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);  
-    if (ret)  
-        return ret;  
-    mutex_lock(&binder_lock);  
-    thread = binder_get_thread(proc);  
-    if (thread == NULL) {  
-        ret = -ENOMEM;  
-        goto err;  
-    }  
-    switch (cmd) {  
-    ......  
-    case BINDER_SET_MAX_THREADS:  
-        if (copy_from_user(&proc->max_threads, ubuf, sizeof(proc->max_threads))) {  
-            ret = -EINVAL;  
-            goto err;  
-        }  
-        break;  
-    ......  
-    }  
-    ret = 0;  
-err:  
-    ......  
-    return ret;  
+static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int ret;
+    struct binder_proc *proc = filp->private_data;
+    struct binder_thread *thread;
+    unsigned int size = _IOC_SIZE(cmd);
+    void __user *ubuf = (void __user *)arg;
+    /*printk(KERN_INFO "binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/
+    ret = wait_event_interruptible(binder_user_error_wait, binder_stop_on_user_error < 2);
+    if (ret)
+        return ret;
+    mutex_lock(&binder_lock);
+    thread = binder_get_thread(proc);
+    if (thread == NULL) {
+        ret = -ENOMEM;
+        goto err;
+    }
+    switch (cmd) {
+    ......
+    case BINDER_SET_MAX_THREADS:
+        if (copy_from_user(&proc->max_threads, ubuf, sizeof(proc->max_threads))) {
+            ret = -EINVAL;
+            goto err;
+        }
+        break;
+    ......
+    }
+    ret = 0;
+err:
+    ......
+    return ret;
 }
 ```
 只是简单地把用户传进来的参数保存在proc->max_threads中就完毕了。注意，这里再调用binder_get_thread函数的时候，就可以在proc->threads中找到当前线程对应的struct binder_thread结构了，因为前面已经创建好并保存在proc->threads红黑树中。
 回到ProcessState构造函数中，mmap函数调用完成之后，Binder驱动程序就为当前进程预留了BINDER_VM_SIZE大小的内存空间了。
 这样，ProcessState全局唯一变量gProcess就创建完毕了，回到frameworks/base/media/mediaserver/main_mediaserver.cpp文件中的main函数， 再接下来，就进入到MediaPlayerService::instantiate函数把MediaPlayerService添加到Service Manger中去了。
 ```cpp
-void MediaPlayerService::instantiate() {  
-    defaultServiceManager()->addService(  
-            String16("media.player"), new MediaPlayerService());  
+void MediaPlayerService::instantiate() {
+    defaultServiceManager()->addService(
+            String16("media.player"), new MediaPlayerService());
 }
 ```
 ```cpp
-class BpServiceManager : public BpInterface<IServiceManager>  
-{  
-public:  
-    BpServiceManager(const sp<IBinder>& impl)  
-        : BpInterface<IServiceManager>(impl)  
-    {  
-    }  
-    ......  
-    virtual status_t addService(const String16& name, const sp<IBinder>& service)  
-    {  
-        Parcel data, reply;  
+class BpServiceManager : public BpInterface<IServiceManager>
+{
+public:
+    BpServiceManager(const sp<IBinder>& impl)
+        : BpInterface<IServiceManager>(impl)
+    {
+    }
+    ......
+    virtual status_t addService(const String16& name, const sp<IBinder>& service)
+    {
+        Parcel data, reply;
 		//writeInterfaceToken它的作用是写入一个整数和一个字符串到Parcel中去。
-        data.writeInterfaceToken(IServiceManager::getInterfaceDescriptor());  
-        data.writeString16(name);  
+        data.writeInterfaceToken(IServiceManager::getInterfaceDescriptor());
+        data.writeString16(name);
 /*writeStrongBinder这里写入一个Binder对象到Parcel去。我们重点看一下这个函数的实现，因为它涉及到进程间传输Binder实体的问题*/
-        data.writeStrongBinder(service);  
-        status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);  
-        return err == NO_ERROR ? reply.readExceptionCode()   
-    }  
-    ......  
+        data.writeStrongBinder(service);
+        status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);
+        return err == NO_ERROR ? reply.readExceptionCode()
+    }
+    ......
 };
 ```
 ```cpp
-status_t Parcel::writeStrongBinder(const sp<IBinder>& val)  
-{  
-    return flatten_binder(ProcessState::self(), val, this);  
+status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
+{
+    return flatten_binder(ProcessState::self(), val, this);
 }
 ```
 ```cpp
-status_t flatten_binder(const sp<ProcessState>& proc,  
-    const sp<IBinder>& binder, Parcel* out)  
-{  
-    flat_binder_object obj;  
-    obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;  
+status_t flatten_binder(const sp<ProcessState>& proc,
+    const sp<IBinder>& binder, Parcel* out)
+{
+    flat_binder_object obj;
+    obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;
 /*传进来的binder即为MediaPlayerService::instantiate函数中new出来的MediaPlayerService实例，因此，不为空。又由于MediaPlayerService继承自BBinder类，它是一个本地Binder实体，因此binder->localBinder返回一个BBinder指针，而且肯定不为空，于是执行下面语句：*/
-    if (binder != NULL) {  
-        IBinder *local = binder->localBinder();  
-        if (!local) {  
-            BpBinder *proxy = binder->remoteBinder();  
-            if (proxy == NULL) {  
-                LOGE("null proxy");  
-            }  
-            const int32_t handle = proxy ? proxy->handle() : 0;  
-            obj.type = BINDER_TYPE_HANDLE;  
-            obj.handle = handle;  
-            obj.cookie = NULL;  
-        } else {  
+    if (binder != NULL) {
+        IBinder *local = binder->localBinder();
+        if (!local) {
+            BpBinder *proxy = binder->remoteBinder();
+            if (proxy == NULL) {
+                LOGE("null proxy");
+            }
+            const int32_t handle = proxy ? proxy->handle() : 0;
+            obj.type = BINDER_TYPE_HANDLE;
+            obj.handle = handle;
+            obj.cookie = NULL;
+        } else {
 /*表明传输的时Binder实体，设置了flat_binder_obj的其他成员变量，注意，指向这个Binder实体地址的指针local保存在flat_binder_obj的成员变量cookie中*/
-            obj.type = BINDER_TYPE_BINDER;  
-            obj.binder = local->getWeakRefs();  
-            obj.cookie = local;  
-        }  
-    } else {  
-        obj.type = BINDER_TYPE_BINDER;  
-        obj.binder = NULL;  
-        obj.cookie = NULL;  
-    }  
-    return finish_flatten_binder(binder, obj, out);  
+            obj.type = BINDER_TYPE_BINDER;
+            obj.binder = local->getWeakRefs();
+            obj.cookie = local;
+        }
+    } else {
+        obj.type = BINDER_TYPE_BINDER;
+        obj.binder = NULL;
+        obj.cookie = NULL;
+    }
+    return finish_flatten_binder(binder, obj, out);
 }
 ```
 函数调用finish_flatten_binder来将这个flat_binder_obj写入到Parcel中去
 ```cpp
-inline static status_t finish_flatten_binder(  
-    const sp<IBinder>& binder, const flat_binder_object& flat, Parcel* out)  
-{  
-    return out->writeObject(flat, false);  
+inline static status_t finish_flatten_binder(
+    const sp<IBinder>& binder, const flat_binder_object& flat, Parcel* out)
+{
+    return out->writeObject(flat, false);
 }
 ```
 ```cpp
-status_t Parcel::writeObject(const flat_binder_object& val, bool nullMetaData)  
-{  
-    const bool enoughData = (mDataPos+sizeof(val)) <= mDataCapacity;  
-    const bool enoughObjects = mObjectsSize < mObjectsCapacity;  
-    if (enoughData && enoughObjects) {  
-restart_write:  
-        *reinterpret_cast<flat_binder_object*>(mData+mDataPos) = val;  
-        // Need to write meta-data?  
-        if (nullMetaData || val.binder != NULL) {  
+status_t Parcel::writeObject(const flat_binder_object& val, bool nullMetaData)
+{
+    const bool enoughData = (mDataPos+sizeof(val)) <= mDataCapacity;
+    const bool enoughObjects = mObjectsSize < mObjectsCapacity;
+    if (enoughData && enoughObjects) {
+restart_write:
+        *reinterpret_cast<flat_binder_object*>(mData+mDataPos) = val;
+        // Need to write meta-data?
+        if (nullMetaData || val.binder != NULL) {
 /*除了把flat_binder_obj写到Parcel里面之内，还要记录这个flat_binder_obj在Parcel里面的偏移位置*/
-            mObjects[mObjectsSize] = mDataPos;  
-            acquire_object(ProcessState::self(), val, this);  
-            mObjectsSize++;  
-        }  
-        // remember if it's a file descriptor  
-        if (val.type == BINDER_TYPE_FD) {  
-            mHasFds = mFdsKnown = true;  
-        }  
-        return finishWrite(sizeof(flat_binder_object));  
-    }  
-  
-    if (!enoughData) {  
-        const status_t err = growData(sizeof(val));  
-        if (err != NO_ERROR) return err;  
-    }  
-    if (!enoughObjects) {  
-        size_t newSize = ((mObjectsSize+2)*3)/2;  
-        size_t* objects = (size_t*)realloc(mObjects, newSize*sizeof(size_t));  
-        if (objects == NULL) return NO_MEMORY;  
-        mObjects = objects;  
-        mObjectsCapacity = newSize;  
-    }  
-    goto restart_write;  
+            mObjects[mObjectsSize] = mDataPos;
+            acquire_object(ProcessState::self(), val, this);
+            mObjectsSize++;
+        }
+        // remember if it's a file descriptor
+        if (val.type == BINDER_TYPE_FD) {
+            mHasFds = mFdsKnown = true;
+        }
+        return finishWrite(sizeof(flat_binder_object));
+    }
+
+    if (!enoughData) {
+        const status_t err = growData(sizeof(val));
+        if (err != NO_ERROR) return err;
+    }
+    if (!enoughObjects) {
+        size_t newSize = ((mObjectsSize+2)*3)/2;
+        size_t* objects = (size_t*)realloc(mObjects, newSize*sizeof(size_t));
+        if (objects == NULL) return NO_MEMORY;
+        mObjects = objects;
+        mObjectsCapacity = newSize;
+    }
+    goto restart_write;
 }
 ```
 回到BpServiceManager::addService函数中，调用
 status_t err = remote()->transact(ADD_SERVICE_TRANSACTION, data, &reply);
 这里的remote成员函数来自于BpRefBase类，它返回一个BpBinder指针（这里使用Binder通信，向ServiceManager进程发起请求，因此需要BpBinder对象来发送请求）。因此，我们继续进入到BpBinder::transact函数:
 ```cpp
-status_t BpBinder::transact(  
-    uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)  
-{  
-    // Once a binder has died, it will never come back to life.  
-    if (mAlive) {  
-        status_t status = IPCThreadState::self()->transact(  
-            mHandle, code, data, reply, flags);  
-        if (status == DEAD_OBJECT) mAlive = 0;  
-        return status;  
-    }  
-    return DEAD_OBJECT;  
+status_t BpBinder::transact(
+    uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
+{
+    // Once a binder has died, it will never come back to life.
+    if (mAlive) {
+        status_t status = IPCThreadState::self()->transact(
+            mHandle, code, data, reply, flags);
+        if (status == DEAD_OBJECT) mAlive = 0;
+        return status;
+    }
+    return DEAD_OBJECT;
 }
 ```
 ```cpp
-status_t IPCThreadState::transact(int32_t handle,  
-                                  uint32_t code, const Parcel& data,  
-                                  Parcel* reply, uint32_t flags)  
-{  
-    status_t err = data.errorCheck();  
-    flags |= TF_ACCEPT_FDS;  
-    IF_LOG_TRANSACTIONS() {  
-        TextOutput::Bundle _b(alog);  
-        alog << "BC_TRANSACTION thr " << (void*)pthread_self() << " / hand "  
-            << handle << " / code " << TypeCode(code) << ": "  
-            << indent << data << dedent << endl;  
-    }  
-    if (err == NO_ERROR) {  
-        LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),  
-            (flags & TF_ONE_WAY) == 0 ? "READ REPLY" : "ONE WAY");  
+status_t IPCThreadState::transact(int32_t handle,
+                                  uint32_t code, const Parcel& data,
+                                  Parcel* reply, uint32_t flags)
+{
+    status_t err = data.errorCheck();
+    flags |= TF_ACCEPT_FDS;
+    IF_LOG_TRANSACTIONS() {
+        TextOutput::Bundle _b(alog);
+        alog << "BC_TRANSACTION thr " << (void*)pthread_self() << " / hand "
+            << handle << " / code " << TypeCode(code) << ": "
+            << indent << data << dedent << endl;
+    }
+    if (err == NO_ERROR) {
+        LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),
+            (flags & TF_ONE_WAY) == 0 ? "READ REPLY" : "ONE WAY");
 /*函数首先调用writeTransactionData函数准备好一个struct binder_transaction_data结构体变量，这个是等一下要传输给Binder驱动程序的。*/
-        err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);  
-    }  
-    if (err != NO_ERROR) {  
-        if (reply) reply->setError(err);  
-        return (mLastError = err);  
-    }  
-    if ((flags & TF_ONE_WAY) == 0) {  
-        #if 0  
-        if (code == 4) { // relayout  
-            LOGI(">>>>>> CALLING transaction 4");  
-        } else {  
-            LOGI(">>>>>> CALLING transaction %d", code);  
-        }  
-        #endif  
-        if (reply) {  
-            err = waitForResponse(reply);  
-        } else {  
-            Parcel fakeReply;  
-            err = waitForResponse(&fakeReply);  
-        }  
-        #if 0  
-        if (code == 4) { // relayout  
-            LOGI("<<<<<< RETURNING transaction 4");  
-        } else {  
-            LOGI("<<<<<< RETURNING transaction %d", code);  
-        }  
-        #endif  
-        IF_LOG_TRANSACTIONS() {  
-            TextOutput::Bundle _b(alog);  
-            alog << "BR_REPLY thr " << (void*)pthread_self() << " / hand "  
-                << handle << ": ";  
-            if (reply) alog << indent << *reply << dedent << endl;  
-            else alog << "(none requested)" << endl;  
-        }  
-    } else {  
-        err = waitForResponse(NULL, NULL);  
-    }  
-    return err;  
+        err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);
+    }
+    if (err != NO_ERROR) {
+        if (reply) reply->setError(err);
+        return (mLastError = err);
+    }
+    if ((flags & TF_ONE_WAY) == 0) {
+        #if 0
+        if (code == 4) { // relayout
+            LOGI(">>>>>> CALLING transaction 4");
+        } else {
+            LOGI(">>>>>> CALLING transaction %d", code);
+        }
+        #endif
+        if (reply) {
+            err = waitForResponse(reply);
+        } else {
+            Parcel fakeReply;
+            err = waitForResponse(&fakeReply);
+        }
+        #if 0
+        if (code == 4) { // relayout
+            LOGI("<<<<<< RETURNING transaction 4");
+        } else {
+            LOGI("<<<<<< RETURNING transaction %d", code);
+        }
+        #endif
+        IF_LOG_TRANSACTIONS() {
+            TextOutput::Bundle _b(alog);
+            alog << "BR_REPLY thr " << (void*)pthread_self() << " / hand "
+                << handle << ": ";
+            if (reply) alog << indent << *reply << dedent << endl;
+            else alog << "(none requested)" << endl;
+        }
+    } else {
+        err = waitForResponse(NULL, NULL);
+    }
+    return err;
 }
 ```
 ```cpp
-status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,  
-    int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)  
-{  
-    binder_transaction_data tr;  
-  
-    tr.target.handle = handle;  
-    tr.code = code;  
-    tr.flags = binderFlags;  
-      
-    const status_t err = data.errorCheck();  
-    if (err == NO_ERROR) {  
-        tr.data_size = data.ipcDataSize();  
-        tr.data.ptr.buffer = data.ipcData();  
-        tr.offsets_size = data.ipcObjectsCount()*sizeof(size_t);  
-        tr.data.ptr.offsets = data.ipcObjects();  
-    } else if (statusBuffer) {  
-        tr.flags |= TF_STATUS_CODE;  
-        *statusBuffer = err;  
-        tr.data_size = sizeof(status_t);  
-        tr.data.ptr.buffer = statusBuffer;  
-        tr.offsets_size = 0;  
-        tr.data.ptr.offsets = NULL;  
-    } else {  
-        return (mLastError = err);  
-    }  
-      
-    mOut.writeInt32(cmd);  
-    mOut.write(&tr, sizeof(tr));  
-      
-    return NO_ERROR;  
+status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
+    int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)
+{
+    binder_transaction_data tr;
+
+    tr.target.handle = handle;
+    tr.code = code;
+    tr.flags = binderFlags;
+
+    const status_t err = data.errorCheck();
+    if (err == NO_ERROR) {
+        tr.data_size = data.ipcDataSize();
+        tr.data.ptr.buffer = data.ipcData();
+        tr.offsets_size = data.ipcObjectsCount()*sizeof(size_t);
+        tr.data.ptr.offsets = data.ipcObjects();
+    } else if (statusBuffer) {
+        tr.flags |= TF_STATUS_CODE;
+        *statusBuffer = err;
+        tr.data_size = sizeof(status_t);
+        tr.data.ptr.buffer = statusBuffer;
+        tr.offsets_size = 0;
+        tr.data.ptr.offsets = NULL;
+    } else {
+        return (mLastError = err);
+    }
+
+    mOut.writeInt32(cmd);
+    mOut.write(&tr, sizeof(tr));
+
+    return NO_ERROR;
 }
 ```
 ![2081352541.jpg](./ScreenShots/2081352541.jpg)
 
-##Android系统进程间通信（IPC）机制Binder中的Client获得Server远程接口过程源代码分析 
+##Android系统进程间通信（IPC）机制Binder中的Client获得Server远程接口过程源代码分析
 1. 我们要获得MediaPlayerService的远程接口，实际上就是要获得一个称为BpMediaPlayerService对象的IMediaPlayerService接口。现在，我们就先来看一下BpMediaPlayerService的类图
 ![0_13117045717gMi.gif.jpeg](./ScreenShots/0_13117045717gMi.gif.jpeg)
 BpMediaPlayerService的构造函数有一个参数impl，它的类型为const sp<IBinder>&，从上面的描述中，这个实际上就是一个BpBinder对象。这样，要创建一个BpMediaPlayerService对象，首先就要有一个BpBinder对象。再来看BpBinder类的构造函数，它有一个参数handle，类型为int32_t，这个参数的意义就是请求MediaPlayerService这个远程接口的进程对MediaPlayerService这个Binder实体的引用了。因此，获取MediaPlayerService这个远程接口的本质问题就变为从Service Manager中获得MediaPlayerService的一个句柄了。
@@ -1334,118 +1334,420 @@ ServiceManager类有一个静态成员函数getIServiceManager，它的作用就
 
 2. 接下来，我们就看一下ServiceManager.getIServiceManager这个函数的实现
 ```cpp
-public final class ServiceManager {  
-    ......  
-    private static IServiceManager sServiceManager;  
-    ......  
-    private static IServiceManager getIServiceManager() {  
-        if (sServiceManager != null) {  
-            return sServiceManager;  
-        }  
-        // Find the service manager  
-        sServiceManager = ServiceManagerNative.asInterface(BinderInternal.getContextObject());  
-        return sServiceManager;  
-    }  
-    ......  
+public final class ServiceManager {
+    ......
+    private static IServiceManager sServiceManager;
+    ......
+    private static IServiceManager getIServiceManager() {
+        if (sServiceManager != null) {
+            return sServiceManager;
+        }
+        // Find the service manager
+        sServiceManager = ServiceManagerNative.asInterface(BinderInternal.getContextObject());
+        return sServiceManager;
+    }
+    ......
 }
 ```
 在调用ServiceManagerNative.asInterface函数之前，首先要通过BinderInternal.getContextObject函数来获得一个BinderProxy对象。
 BinderInternal.getContextObject的实现，
 ```cpp
-public class BinderInternal {  
-    ......  
-    /** 
-    * Return the global "context object" of the system.  This is usually 
-    * an implementation of IServiceManager, which you can use to find 
-    * other services. 
-    */  
-    public static final native IBinder getContextObject();  
-    ......  
+public class BinderInternal {
+    ......
+    /**
+    * Return the global "context object" of the system.  This is usually
+    * an implementation of IServiceManager, which you can use to find
+    * other services.
+    */
+    public static final native IBinder getContextObject();
+    ......
 }
 ```
 ```cpp
-static jobject android_os_BinderInternal_getContextObject(JNIEnv* env, jobject clazz)  
-{  
-    sp<IBinder> b = ProcessState::self()->getContextObject(NULL);  
-    return javaObjectForIBinder(env, b);  
+static jobject android_os_BinderInternal_getContextObject(JNIEnv* env, jobject clazz)
+{
+    sp<IBinder> b = ProcessState::self()->getContextObject(NULL);
+    return javaObjectForIBinder(env, b);
 }
 ```
 ProcessState::self()->getContextObject函数返回一个BpBinder对象，它的句柄值是0，即下面语句：
 sp<IBinder> b = new BpBinder(0);
 ```cpp
-jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)  
-{  
-    if (val == NULL) return NULL;  
-  
-    if (val->checkSubclass(&gBinderOffsets)) {  
-        // One of our own!  
-        jobject object = static_cast<JavaBBinder*>(val.get())->object();  
-        //printf("objectForBinder %p: it's our own %p!\n", val.get(), object);  
-        return object;  
-    }  
-  
-    // For the rest of the function we will hold this lock, to serialize  
-    // looking/creation of Java proxies for native Binder proxies.  
-    AutoMutex _l(mProxyLock);  
-  
-    // Someone else's...  do we know about it?  
-    jobject object = (jobject)val->findObject(&gBinderProxyOffsets);  
-    if (object != NULL) {  
-        jobject res = env->CallObjectMethod(object, gWeakReferenceOffsets.mGet);  
-        if (res != NULL) {  
-            LOGV("objectForBinder %p: found existing %p!\n", val.get(), res);  
-            return res;  
-        }  
-        LOGV("Proxy object %p of IBinder %p no longer in working set!!!", object, val.get());  
-        android_atomic_dec(&gNumProxyRefs);  
-        val->detachObject(&gBinderProxyOffsets);  
-        env->DeleteGlobalRef(object);  
-    }  
-    object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);  
-    if (object != NULL) {  
-        LOGV("objectForBinder %p: created new %p!\n", val.get(), object);  
-        // The proxy holds a reference to the native object.  
-        env->SetIntField(object, gBinderProxyOffsets.mObject, (int)val.get());  
-        val->incStrong(object);  
-        // The native object needs to hold a weak reference back to the  
-        // proxy, so we can retrieve the same proxy if it is still active.  
-        jobject refObject = env->NewGlobalRef(  
-                env->GetObjectField(object, gBinderProxyOffsets.mSelf));  
-        val->attachObject(&gBinderProxyOffsets, refObject,  
-                jnienv_to_javavm(env), proxy_cleanup);  
-        // Note that a new object reference has been created.  
-        android_atomic_inc(&gNumProxyRefs);  
-        incRefsCreated(env);  
-    }  
-    return object;  
+jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)
+{
+    if (val == NULL) return NULL;
+
+    if (val->checkSubclass(&gBinderOffsets)) {
+        // One of our own!
+        jobject object = static_cast<JavaBBinder*>(val.get())->object();
+        //printf("objectForBinder %p: it's our own %p!\n", val.get(), object);
+        return object;
+    }
+
+    // For the rest of the function we will hold this lock, to serialize
+    // looking/creation of Java proxies for native Binder proxies.
+    AutoMutex _l(mProxyLock);
+
+    // Someone else's...  do we know about it?
+    jobject object = (jobject)val->findObject(&gBinderProxyOffsets);
+    if (object != NULL) {
+        jobject res = env->CallObjectMethod(object, gWeakReferenceOffsets.mGet);
+        if (res != NULL) {
+            LOGV("objectForBinder %p: found existing %p!\n", val.get(), res);
+            return res;
+        }
+        LOGV("Proxy object %p of IBinder %p no longer in working set!!!", object, val.get());
+        android_atomic_dec(&gNumProxyRefs);
+        val->detachObject(&gBinderProxyOffsets);
+        env->DeleteGlobalRef(object);
+    }
+/*此处创建一个BinderProxy对象，*/
+    object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);
+    if (object != NULL) {
+        LOGV("objectForBinder %p: created new %p!\n", val.get(), object);
+        // The proxy holds a reference to the native object.
+/*创建好的BinderPoxy与BpBinder关联，因为参数val是一个BpBinder的引用，这里将其地址保存在创建好的BinderProxy的mObject成员中，这样java层通过该对象，利用jni技术就可以使用BpBinder进行通信*/
+        env->SetIntField(object, gBinderProxyOffsets.mObject, (int)val.get());
+        val->incStrong(object);
+        // The native object needs to hold a weak reference back to the
+        // proxy, so we can retrieve the same proxy if it is still active.
+        jobject refObject = env->NewGlobalRef(
+                env->GetObjectField(object, gBinderProxyOffsets.mSelf));
+        val->attachObject(&gBinderProxyOffsets, refObject,
+                jnienv_to_javavm(env), proxy_cleanup);
+        // Note that a new object reference has been created.
+        android_atomic_inc(&gNumProxyRefs);
+        incRefsCreated(env);
+    }
+    return object;
 }
 ```
 ```cpp
-static struct bindernative_offsets_t  
-{  
-    // Class state.  
-    jclass mClass;  
-    jmethodID mExecTransact;  
-    // Object state.  
-    jfieldID mObject;  
+static struct bindernative_offsets_t
+{
+    // Class state.
+    jclass mClass;
+    jmethodID mExecTransact;
+    // Object state.
+    jfieldID mObject;
 } gBinderOffsets;
 ```
-gBinderOffsets变量是用来记录上面第二个类图中的Binder类的相关信息的，它是在注册Binder类的JNI方法的int_register_android_os_Binder函数初始化的
+gBinderOffsets变量是用来记录上面第二个类图中的Binder类的相关信息的，它是在注册Binder类的JNI方法的int_register_android_os_Binder函数初始化的（该结构体记录java类中各成员对应的偏移值，该偏移值固定，因此在注册函数中就可以初始化，并且保持不变，故而使用全局变量。）
 ```cpp
-static struct binderproxy_offsets_t  
-{  
-    // Class state.  
-    jclass mClass;  
-    jmethodID mConstructor;  
-    jmethodID mSendDeathNotice;  
-    // Object state.  
-    jfieldID mObject;  
-    jfieldID mSelf;  
+static struct binderproxy_offsets_t
+{
+    // Class state.
+    jclass mClass;
+    jmethodID mConstructor;
+    jmethodID mSendDeathNotice;
+    // Object state.
+    jfieldID mObject;
+    jfieldID mSelf;
 } gBinderProxyOffsets;
 ```
 gBinderProxyOffsets是用来变量是用来记录上面第一个图中的BinderProxy类的相关信息的，它是在注册BinderProxy类的JNI方法的int_register_android_os_BinderProxy函数初始化
 回到函数javaObjectForIBinder,
-object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);  
+object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);
 这里，就创建了一个BinderProxy对象了。创建了之后，要把这个BpBinder对象和这个BinderProxy对象关联起来：
 env->SetIntField(object, gBinderProxyOffsets.mObject, (int)val.get());
 就是通过BinderProxy.mObject成员变量来关联的了，BinderProxy.mObject成员变量记录了这个BpBinder对象的地址。
+接下去就是调用ServiceManagerNative.asInterface函数了
+```java
+public abstract class ServiceManagerNative ......
+{
+    ......
+    static public IServiceManager asInterface(IBinder obj)
+    {
+        if (obj == null) {
+            return null;
+        }
+        IServiceManager in =
+            (IServiceManager)obj.queryLocalInterface(descriptor);
+        if (in != null) {
+            return in;
+        }
+        return new ServiceManagerProxy(obj);
+    }
+    ......
+}
+```
+这里的参数obj是一个BinderProxy对象，它的queryLocalInterface函数返回null。因此，最终以这个BinderProxy对象为参数创建一个ServiceManagerProxy对象。 于是，我们的目标终于完成了。
+总结一下，就是在Java层，我们拥有了一个Service Manager远程接口ServiceManagerProxy，而这个ServiceManagerProxy对象在JNI层有一个句柄值为0的BpBinder对象与之通过gBinderProxyOffsets关联起来。
+3. HelloService接口的定义
+```java
+package android.os;
+interface IHelloService
+{
+    void setVal(int val);
+    int getVal();
+}
+```
+这是一个aidl文件，编译后会生成一个IHelloService.java。我们来看一下这个文件的内容隐藏着什么奥秘
+```java
+/*
+ * This file is auto-generated.  DO NOT MODIFY.
+ * Original file: frameworks/base/core/java/android/os/IHelloService.aidl
+ */
+package android.os;
+public interface IHelloService extends android.os.IInterface
+{
+    /** Local-side IPC implementation stub class. */
+    public static abstract class Stub extends android.os.Binder implements android.os.IHelloService
+    {
+        private static final java.lang.String DESCRIPTOR = "android.os.IHelloService";
+        /** Construct the stub at attach it to the interface. */
+        public Stub()
+        {
+            this.attachInterface(this, DESCRIPTOR);
+        }
+        /**
+        * Cast an IBinder object into an android.os.IHelloService interface,
+        * generating a proxy if needed.
+        */
+        public static android.os.IHelloService asInterface(android.os.IBinder obj)
+        {
+            if ((obj==null)) {
+                return null;
+            }
+            android.os.IInterface iin = (android.os.IInterface)obj.queryLocalInterface(DESCRIPTOR);
+            if (((iin!=null)&&(iin instanceof android.os.IHelloService))) {
+                return ((android.os.IHelloService)iin);
+            }
+            return new android.os.IHelloService.Stub.Proxy(obj);
+        }
+        public android.os.IBinder asBinder()
+        {
+            return this;
+        }
+        @Override
+        public boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) throws android.os.RemoteException
+        {
+            switch (code)
+            {
+                case INTERFACE_TRANSACTION:
+                {
+                    reply.writeString(DESCRIPTOR);
+                    return true;
+                }
+                case TRANSACTION_setVal:
+                {
+                    data.enforceInterface(DESCRIPTOR);
+                    int _arg0;
+                    _arg0 = data.readInt();
+                    this.setVal(_arg0);
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_getVal:
+                {
+                    data.enforceInterface(DESCRIPTOR);
+                    int _result = this.getVal();
+                    reply.writeNoException();
+                    reply.writeInt(_result);
+                    return true;
+                }
+            }
+            return super.onTransact(code, data, reply, flags);
+        }
+        private static class Proxy implements android.os.IHelloService
+        {
+            private android.os.IBinder mRemote;
+            Proxy(android.os.IBinder remote)
+            {
+                mRemote = remote;
+            }
+            public android.os.IBinder asBinder()
+            {
+                return mRemote;
+            }
+            public java.lang.String getInterfaceDescriptor()
+            {
+                return DESCRIPTOR;
+            }
+            public void setVal(int val) throws android.os.RemoteException
+            {
+                android.os.Parcel _data = android.os.Parcel.obtain();
+                android.os.Parcel _reply = android.os.Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    _data.writeInt(val);
+                    mRemote.transact(Stub.TRANSACTION_setVal, _data, _reply, 0);
+                    _reply.readException();
+                }
+                finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+            public int getVal() throws android.os.RemoteException
+            {
+                android.os.Parcel _data = android.os.Parcel.obtain();
+                android.os.Parcel _reply = android.os.Parcel.obtain();
+                int _result;
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    mRemote.transact(Stub.TRANSACTION_getVal, _data, _reply, 0);
+                    _reply.readException();
+                    _result = _reply.readInt();
+                }
+                finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+                return _result;
+            }
+        }
+        static final int TRANSACTION_setVal = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
+        static final int TRANSACTION_getVal = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
+    }
+    public void setVal(int val) throws android.os.RemoteException;
+    public int getVal() throws android.os.RemoteException;
+}
+```
+4. HelloService的启动过程
+实现HelloService接口的Server是怎么定义的。
+```java
+package com.android.server;
+import android.content.Context;
+import android.os.IHelloService;
+import android.util.Slog;
+public class HelloService extends IHelloService.Stub {
+    private static final String TAG = "HelloService";
+    HelloService() {
+        init_native();
+    }
+    public void setVal(int val) {
+        setVal_native(val);
+    }
+    public int getVal() {
+        return getVal_native();
+    }
+    private static native boolean init_native();
+        private static native void setVal_native(int val);
+    private static native int getVal_native();
+}
+```
+有了HelloService这个Server类后，下一步就是考虑怎么样把它启动起来了。在frameworks/base/services/java/com/android/server/SystemServer.java文件中，定义了SystemServer类。SystemServer对象是在系统启动的时候创建的，它被创建的时候会启动一个线程来创建HelloService，并且把它添加到Service Manager中去。
+```java
+try {
+    Slog.i(TAG, "Hello Service");
+    ServiceManager.addService("hello", new HelloService());
+} catch (Throwable e) {
+    Slog.e(TAG, "Failure starting Hello Service", e);
+}
+```
+通过调用ServiceManager.addService把一个HelloService实例添加到Service Manager中去。先来看一下HelloService的创建过程:
+new HelloService();
+这个语句会调用HelloService类的构造函数，而HelloService类继承于IHelloService.Stub类，IHelloService.Stub类又继承了Binder类，因此，最后会调用Binder类的构造函数：
+```java
+public class Binder implements IBinder {
+    ......
+    private int mObject;
+    ......
+    public Binder() {
+        init();
+        ......
+    }
+    private native final void init();
+    ......
+}
+```
+```cpp
+static void android_os_Binder_init(JNIEnv* env, jobject clazz)
+{
+    JavaBBinderHolder* jbh = new JavaBBinderHolder(env, clazz);
+    if (jbh == NULL) {
+        jniThrowException(env, "java/lang/OutOfMemoryError", NULL);
+        return;
+    }
+    LOGV("Java Binder %p: acquiring first ref on holder %p", clazz, jbh);
+    jbh->incStrong(clazz);
+    env->SetIntField(clazz, gBinderOffsets.mObject, (int)jbh);
+}
+```
+它实际上只做了一件事情，就是创建一个JavaBBinderHolder对象jbh，然后把这个对象的地址保存在上面的Binder类的mObject成员变量中，后面我们会用到。
+回到ServerThread.run函数中，我们再来看一下ServiceManager.addService函数的实现
+```java
+public final class ServiceManager {
+    ......
+    private static IServiceManager sServiceManager;
+    ......
+    public static void addService(String name, IBinder service) {
+        try {
+            getIServiceManager().addService(name, service);
+        } catch (RemoteException e) {
+            Log.e(TAG, "error in addService", e);
+        }
+    }
+    ......
+}
+```
+getIServiceManager返回的是一个ServiceManagerProxy对象的IServiceManager接口
+```java
+class ServiceManagerProxy implements IServiceManager {
+    public ServiceManagerProxy(IBinder remote) {
+        mRemote = remote;
+    }
+    ......
+    public void addService(String name, IBinder service)
+        throws RemoteException {
+            Parcel data = Parcel.obtain();
+            Parcel reply = Parcel.obtain();
+            data.writeInterfaceToken(IServiceManager.descriptor);
+            data.writeString(name);
+            data.writeStrongBinder(service);
+            mRemote.transact(ADD_SERVICE_TRANSACTION, data, reply, 0);
+            reply.recycle();
+            data.recycle();
+    }
+    ......
+    private IBinder mRemote;
+}
+```
+看看如何把参数service写到data这个Parcel对象中去的
+```java
+public final class Parcel {
+    ......
+    /**
+    * Write an object into the parcel at the current dataPosition(),
+    * growing dataCapacity() if needed.
+    */
+    public final native void writeStrongBinder(IBinder val);
+    ......
+}
+```
+```cpp
+static void android_os_Parcel_writeStrongBinder(JNIEnv* env, jobject clazz, jobject object)
+{
+    Parcel* parcel = parcelForJavaObject(env, clazz);
+    if (parcel != NULL) {
+/*首先通过ibinderForJavaObject函数把这个Java语言实现的Binder对象转换为C++语言实现的JavaBBinderHolder对象*/
+        const status_t err = parcel->writeStrongBinder(ibinderForJavaObject(env, object));
+        if (err != NO_ERROR) {
+            jniThrowException(env, "java/lang/OutOfMemoryError", NULL);
+        }
+    }
+}
+```
+```cpp
+sp<IBinder> ibinderForJavaObject(JNIEnv* env, jobject obj)
+{
+    if (obj == NULL) return NULL;
+    if (env->IsInstanceOf(obj, gBinderOffsets.mClass)) {
+/*在前面创建HelloService对象，曾经在调用到HelloService的父类Binder中，曾经在JNI层创建了一个JavaBBinderHolder对象，然后把这个对象的地址保存在Binder类的mObject成员变量中，因此，这里把obj对象的mObject成员变量强制转为JavaBBinderHolder对象*/
+        JavaBBinderHolder* jbh = (JavaBBinderHolder*)
+            env->GetIntField(obj, gBinderOffsets.mObject);
+        return jbh != NULL ? jbh->get(env) : NULL;
+    }
+    if (env->IsInstanceOf(obj, gBinderProxyOffsets.mClass)) {
+        return (IBinder*)
+            env->GetIntField(obj, gBinderProxyOffsets.mObject);
+    }
+    LOGW("ibinderForJavaObject: %p is not a Binder object", obj);
+    return NULL;
+}
+```
+回到android_os_Parcel_writeStrongBinder函数中,
+const status_t err = parcel->writeStrongBinder((JavaBBinderHodler*)(obj.mObject));
+效果相当于是写入了一个JavaBBinder类型的Binder实体到parcel中去。
+
